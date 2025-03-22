@@ -38,10 +38,27 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
       this->handle_delete(request);
       return;
     }
+    // Gérer les requêtes POST pour les uploads
+    if (request->method() == HTTP_POST && request->hasHeader("Content-Type")) {
+      AsyncWebHeader* content_type_header = request->getHeader("Content-Type");
+      if (content_type_header && strstr(content_type_header->value().c_str(), "multipart/form-data") != nullptr) {
+        for (size_t i = 0; i < request->args(); i++) {
+          AsyncWebParameter* param = request->getParam(i);
+          if (param->isFile()) {
+            std::string file_name = param->name().c_str();
+            uint8_t* data = (uint8_t*)param->value().c_str();
+            size_t len = param->value().length();
+            this->handleUpload(request, file_name.c_str(), 0, data, len, true);
+          }
+        }
+        return;
+      }
+    }
   }
 }
 
-void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
+void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
+                           size_t len, bool final) {
   if (!this->upload_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
     return;
@@ -51,52 +68,39 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filenam
   std::string path = this->build_absolute_path(extracted);
 
   // Vérifier si le chemin est un dossier valide
-  if (!this->sd_mmc_card_->is_directory(path)) {
+  if (index == 0 && !this->sd_mmc_card_->is_directory(path)) {
     auto response = request->beginResponse(401, "application/json", "{ \"error\": \"invalid upload folder\" }");
     response->addHeader("Connection", "close");
     request->send(response);
     return;
   }
 
-  // Complete path to save the file
-  std::string full_file_path = Path::join(path, filename.c_str());
+  std::string file_name(filename.c_str());
+  std::string full_file_path = Path::join(path, file_name);
 
   if (index == 0) {
-    ESP_LOGD(TAG, "Upload started: %s to %s", filename.c_str(), full_file_path.c_str());
-    // You might want to create the file here
-  }
-
-  ESP_LOGD(TAG, "Writing chunk %d of %d bytes", index, len);
-  if (!this->append_file_(full_file_path.c_str(), data, len)) {
-        ESP_LOGE(TAG, "Failed to write file");
-        request->send(500, "application/json", "{ \"error\": \"file write failed\" }");
-        return;
+    ESP_LOGD(TAG, "Uploading file %s to %s", file_name.c_str(), path.c_str());
+    if (!this->sd_mmc_card_->write_file(full_file_path.c_str(), data, len)) {
+      auto response = request->beginResponse(500, "application/json", "{ \"error\": \"failed to write file\" }");
+      response->addHeader("Connection", "close");
+      request->send(response);
+      return;
+    }
+  } else {
+    if (!this->sd_mmc_card_->append_file(full_file_path.c_str(), data, len)) {
+      auto response = request->beginResponse(500, "application/json", "{ \"error\": \"failed to append to file\" }");
+      response->addHeader("Connection", "close");
+      request->send(response);
+      return;
+    }
   }
 
   if (final) {
-    ESP_LOGD(TAG, "Upload complete: %s, size: %d bytes", filename.c_str(), index + len);
-    auto response = request->beginResponse(200, "text/html", "Upload success"); // Changed to 200 OK
+    auto response = request->beginResponse(201, "text/html", "Upload success");
     response->addHeader("Connection", "close");
     request->send(response);
+    return;
   }
-}
-
-
-bool Box3Web::append_file_(const char *path, uint8_t *data, size_t len) {
-    //Open in append mode
-    FILE *file = fopen(path, "a");
-    if (file == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for appending");
-        return false;
-    }
-    size_t bytes_written = fwrite(data, 1, len, file);
-    fclose(file);
-
-    if (bytes_written != len) {
-        ESP_LOGE(TAG, "File write failed");
-        return false;
-    }
-    return true;
 }
 
 void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
@@ -225,6 +229,7 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
   for (auto const &entry : entries) {
     write_row(response, entry);
   }
+
   response->print(F("</tbody></table>"
                     "<script>"
                     "function navigate_to(path) { window.location.href = path; }"
@@ -312,38 +317,6 @@ std::string Box3Web::build_absolute_path(std::string relative_path) const {
 
   std::string absolute = Path::join(this->root_path_, relative_path);
   return absolute;
-}
-
-std::string Path::file_name(std::string const &path) {
-  size_t pos = path.rfind(Path::separator);
-  if (pos != std::string::npos) {
-    return path.substr(pos + 1);
-  }
-  return "";
-}
-
-bool Path::is_absolute(std::string const &path) { return path.size() && path[0] == separator; }
-
-bool Path::trailing_slash(std::string const &path) { return path.size() && path[path.length() - 1] == separator; }
-
-std::string Path::join(std::string const &first, std::string const &second) {
-  std::string result = first;
-  if (!trailing_slash(first) && !is_absolute(second)) {
-    result.push_back(separator);
-  }
-  if (trailing_slash(first) && is_absolute(second)) {
-    result.pop_back();
-  }
-  result.append(second);
-  return result;
-}
-
-std::string Path::remove_root_path(std::string path, std::string const &root) {
-  if (!str_startswith(path, root))
-    return path;
-  if (path.size() == root.size() || path.size() < 2)
-    return "/";
-  return path.erase(0, root.size());
 }
 
 }  // namespace box3web
