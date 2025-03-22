@@ -151,6 +151,7 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
   } else if (cmd_str.find("TYPE") == 0) {
     send_response(client_socket, 200, "Type set to " + cmd_str.substr(5));
   } else if (cmd_str.find("PWD") == 0) {
+    ESP_LOGD(TAG, "PWD - Current path: %s", client_current_paths_[client_index].c_str());
     send_response(client_socket, 257, "\"" + client_current_paths_[client_index] + "\" is current directory");
   } else if (cmd_str.find("CWD") == 0) {
     std::string path = cmd_str.substr(4);
@@ -158,39 +159,45 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       send_response(client_socket, 550, "Failed to change directory");
     } else {
       std::string full_path;
+      ESP_LOGD(TAG, "CWD - path: %s", path.c_str());
+      ESP_LOGD(TAG, "CWD - root_path_: %s", root_path_.c_str());
+      ESP_LOGD(TAG, "CWD - client_current_paths_[client_index]: %s", client_current_paths_[client_index].c_str());
+
       if (path[0] == '/') {
         full_path = root_path_.substr(0, root_path_.length() -1) + path;
       } else {
         full_path = client_current_paths_[client_index] + "/" + path;
       }
 
-      if (path == "/") {
-        full_path = root_path_;
-      }
-      ESP_LOGD(TAG, "Attempting to change directory to: %s", full_path.c_str());
+      ESP_LOGD(TAG, "CWD - Attempting to change directory to: %s", full_path.c_str());
       DIR *dir = opendir(full_path.c_str());
       if (dir != nullptr) {
         closedir(dir);
         client_current_paths_[client_index] = full_path;
+        ESP_LOGD(TAG, "CWD - Directory successfully changed to: %s", client_current_paths_[client_index].c_str());
         send_response(client_socket, 250, "Directory successfully changed");
       } else {
-        ESP_LOGE(TAG, "Failed to change directory. errno: %d", errno);
+        ESP_LOGE(TAG, "CWD - Failed to change directory. errno: %d", errno);
         send_response(client_socket, 550, "Failed to change directory");
       }
     }
   } else if (cmd_str.find("CDUP") == 0) {
     std::string current = client_current_paths_[client_index];
     size_t pos = current.find_last_of('/');
-
+    ESP_LOGD(TAG, "CDUP - current path: %s", current.c_str());
+    ESP_LOGD(TAG, "CDUP - root_path_: %s", root_path_.c_str());
         if (pos != std::string::npos && client_current_paths_[client_index] != root_path_) {
           std::string new_path = current.substr(0, pos);
           if (new_path.empty()) {
               client_current_paths_[client_index] = root_path_; //On est à la racine
+              ESP_LOGD(TAG, "CDUP - Changed directory to root: %s", client_current_paths_[client_index].c_str());
           } else {
               client_current_paths_[client_index] = new_path;
+              ESP_LOGD(TAG, "CDUP - Changed directory to: %s", client_current_paths_[client_index].c_str());
           }
           send_response(client_socket, 250, "Directory successfully changed");
         } else {
+          ESP_LOGD(TAG, "CDUP - Failed to change directory (already at root or error)");
           send_response(client_socket, 550, "Failed to change directory");
         }
   } else if (cmd_str.find("PASV") == 0) {
@@ -201,6 +208,7 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("LIST") == 0) {
     std::string path = client_current_paths_[client_index];
+    ESP_LOGD(TAG, "LIST - Listing directory: %s", path.c_str());
     send_response(client_socket, 150, "Opening ASCII mode data connection for file list");
     list_directory(client_socket, path);
   } else if (cmd_str.find("STOR") == 0) {
@@ -385,12 +393,17 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
     if (entry_name == "." || entry_name == "..") {
       continue;
     }
-    std::string full_path = path + "/" + entry_name;
+    //std::string full_path = path + "/" + entry_name; //Incorrect!
+
+    char full_path[256]; // Adjust size as needed
+    snprintf(full_path, sizeof(full_path), "%s%s", path.c_str(), entry_name.c_str()); // path already includes trailing slash
+    std::string full_path_str(full_path);
+
     struct stat entry_stat;
-    if (stat(full_path.c_str(), &entry_stat) == 0) {
+    if (stat(full_path_str.c_str(), &entry_stat) == 0) {
       char time_str[80];
       strftime(time_str, sizeof(time_str), "%b %d %H:%M", localtime(&entry_stat.st_mtime));
-      
+
       char perm_str[11] = "----------";
       if (S_ISDIR(entry_stat.st_mode)) perm_str[0] = 'd';
       if (entry_stat.st_mode & S_IRUSR) perm_str[1] = 'r';
@@ -407,10 +420,10 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
       snprintf(list_item, sizeof(list_item),
                "%s 1 root root %8ld %s %s\r\n",
                perm_str, (long)entry_stat.st_size, time_str, entry_name.c_str());
-      
+
       send(data_socket, list_item, strlen(list_item), 0);
     } else {
-       ESP_LOGW(TAG, "stat failed for %s with errno: %d", full_path.c_str(), errno);
+      ESP_LOGW(TAG, "stat failed for %s with errno: %d", full_path_str.c_str(), errno);
     }
   }
 
@@ -480,6 +493,7 @@ bool FTPServer::is_running() const {
 
 }  // namespace ftp_server
 }  // namespace esphome
+
 
 
 
