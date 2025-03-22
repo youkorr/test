@@ -14,7 +14,6 @@ static const char *TAG = "box3web";
 Box3WebComponent *Box3WebComponent::instance = nullptr;
 
 Box3WebComponent::Box3WebComponent() {
-  // Set the static instance to this instance
   instance = this;
 }
 
@@ -118,13 +117,9 @@ void Box3WebComponent::register_handlers() {
 }
 
 bool Box3WebComponent::is_valid_path(const std::string &path) {
-  // Check if path contains ".."
   if (path.find("..") != std::string::npos) {
     return false;
   }
-  
-  // Other security checks can be added here
-  
   return true;
 }
 
@@ -139,13 +134,10 @@ std::string Box3WebComponent::get_content_type(const std::string &path) {
   if (path.ends_with(".ico")) return "image/x-icon";
   if (path.ends_with(".txt")) return "text/plain";
   if (path.ends_with(".pdf")) return "application/pdf";
-  
   return "application/octet-stream";
 }
 
-// Handler implementations
 esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
-  // Serve the main HTML page with file browser interface
   const char *html = R"(
 <!DOCTYPE html>
 <html>
@@ -229,10 +221,8 @@ esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
     <script>
         let currentPath = '/';
         
-        // Load files on page load
         document.addEventListener('DOMContentLoaded', loadFiles);
         
-        // Setup upload form
         document.getElementById('upload-form').addEventListener('submit', function(e) {
             e.preventDefault();
             uploadFile();
@@ -241,7 +231,6 @@ esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
         function loadFiles(path) {
             if (path) currentPath = path;
             
-            // Update path navigation
             document.getElementById('path-nav').textContent = 'Current path: ' + currentPath;
             
             fetch('/files/list?path=' + encodeURIComponent(currentPath))
@@ -250,53 +239,31 @@ esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
                     const fileListElem = document.getElementById('file-list');
                     fileListElem.innerHTML = '';
                     
-                    // Add parent directory link if not at root
                     if (currentPath !== '/') {
                         const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
                         const parentDir = document.createElement('div');
                         parentDir.className = 'file-item';
-                        parentDir.innerHTML = `
-                            <span>📁 <a href="#" onclick="loadFiles('${parentPath || '/'}'); return false;">..</a></span>
-                        `;
+                        parentDir.innerHTML = '<span>📁 <a href="#" onclick="loadFiles(\'' + (parentPath || '/') + '\'); return false;">..</a></span>';
                         fileListElem.appendChild(parentDir);
                     }
                     
-                    // Add directories
                     data.directories.forEach(dir => {
                         const dirElem = document.createElement('div');
                         dirElem.className = 'file-item';
-                        
-                        const dirPath = currentPath === '/' ? 
-                            '/' + dir : currentPath + '/' + dir;
-                            
-                        dirElem.innerHTML = `
-                            <span>📁 <a href="#" onclick="loadFiles('${dirPath}'); return false;">${dir}</a></span>
-                        `;
+                        const dirPath = currentPath === '/' ? '/' + dir : currentPath + '/' + dir;
+                        dirElem.innerHTML = '<span>📁 <a href="#" onclick="loadFiles(\'' + dirPath + '\'); return false;">' + dir + '</a></span>';
                         fileListElem.appendChild(dirElem);
                     });
                     
-                    // Add files
                     data.files.forEach(file => {
                         const fileElem = document.createElement('div');
                         fileElem.className = 'file-item';
-                        
-                        const filePath = currentPath === '/' ? 
-                            '/' + file : currentPath + '/' + file;
-                            
-                        let actions = `
-                            <div class="actions">
-                                <a href="/files/download?path=${encodeURIComponent(filePath)}" class="btn btn-download">Download</a>
-                        `;
-                        
-                        actions += `
-                                <button onclick="deleteFile('${filePath}')" class="btn btn-delete">Delete</button>
-                            </div>
-                        `;
-                        
-                        fileElem.innerHTML = `
-                            <span>📄 ${file}</span>
-                            ${actions}
-                        `;
+                        const filePath = currentPath === '/' ? '/' + file : currentPath + '/' + file;
+                        let actions = '<div class="actions">' +
+                            '<a href="/files/download?path=' + encodeURIComponent(filePath) + '" class="btn btn-download">Download</a>' +
+                            '<button onclick="deleteFile(\'' + filePath + '\')" class="btn btn-delete">Delete</button>' +
+                            '</div>';
+                        fileElem.innerHTML = '<span>📄 ' + file + '</span>' + actions;
                         fileListElem.appendChild(fileElem);
                     });
                 })
@@ -328,7 +295,7 @@ esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
             .then(response => response.text())
             .then(result => {
                 document.getElementById('upload-status').textContent = result;
-                loadFiles(); // Reload the file list
+                loadFiles();
                 document.getElementById('upload-form').reset();
             })
             .catch(error => {
@@ -349,7 +316,7 @@ esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
                 .then(response => response.text())
                 .then(result => {
                     alert(result);
-                    loadFiles(); // Reload the file list
+                    loadFiles();
                 })
                 .catch(error => {
                     console.error('Error deleting file:', error);
@@ -860,3 +827,4 @@ void Box3WebComponent::loop() {
 
 }  // namespace box3web
 }  // namespace esphome	
+
