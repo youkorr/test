@@ -1,52 +1,66 @@
 #pragma once
-
 #include "esphome/core/component.h"
-#include "esphome/core/helpers.h"
+#include "esphome/components/web_server_base/web_server_base.h"
 #include "../sd_mmc_card/sd_mmc_card.h"
-#include <esp_http_server.h>
 
 namespace esphome {
 namespace box3web {
 
-class Box3WebComponent : public Component {
+class Box3Web : public Component, public AsyncWebHandler {
  public:
-  Box3WebComponent();
-  
+  Box3Web(web_server_base::WebServerBase *);
   void setup() override;
   void dump_config() override;
-  float get_setup_priority() const override;
-  
-  void set_url_prefix(const std::string &url_prefix) { this->url_prefix_ = url_prefix; }
-  void set_root_path(const std::string &root_path) { this->root_path_ = root_path; }
-  void set_enable_deletion(bool enable) { this->enable_deletion_ = enable; }
-  void set_enable_download(bool enable) { this->enable_download_ = enable; }
-  void set_enable_upload(bool enable) { this->enable_upload_ = enable; }
-  
+  bool canHandle(AsyncWebServerRequest *request) override;
+  void handleRequest(AsyncWebServerRequest *request) override;
+  void handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len,
+                    bool final) override;
+  bool isRequestHandlerTrivial() override { return false; }
+
+  void set_url_prefix(std::string const &);
+  void set_root_path(std::string const &);
+  void set_sd_mmc_card(sd_mmc_card::SdMmc *);
+  void set_deletion_enabled(bool);
+  void set_download_enabled(bool);
+  void set_upload_enabled(bool);
+
  protected:
-  std::string url_prefix_{"files"};
-  std::string root_path_{"/"};
-  bool enable_deletion_{false};
-  bool enable_download_{true};
-  bool enable_upload_{false};
-  
-  httpd_handle_t server_{nullptr};
-  
-  // Helper methods
-  static esp_err_t index_handler(httpd_req_t *req);
-  static esp_err_t file_handler(httpd_req_t *req);
-  static esp_err_t upload_handler(httpd_req_t *req);
-  static esp_err_t delete_handler(httpd_req_t *req);
-  static esp_err_t download_handler(httpd_req_t *req);
-  
-  // Static instance pointer for use in C callbacks
-  static Box3WebComponent *instance;
-  
-  // Private methods
-  void setup_server();
-  void register_handlers();
-  bool is_valid_path(const std::string &path);
-  std::string get_content_type(const std::string &path);
+  web_server_base::WebServerBase *base_;
+  sd_mmc_card::SdMmc *sd_mmc_card_;
+
+  std::string url_prefix_;
+  std::string root_path_;
+  bool deletion_enabled_;
+  bool download_enabled_;
+  bool upload_enabled_;
+
+  std::string build_prefix() const;
+  std::string extract_path_from_url(std::string const &) const;
+  std::string build_absolute_path(std::string) const;
+  void write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const;
+  void handle_index(AsyncWebServerRequest *, std::string const &) const;
+  void handle_get(AsyncWebServerRequest *) const;
+  void handle_delete(AsyncWebServerRequest *);
+  void handle_download(AsyncWebServerRequest *, std::string const &) const;
 };
 
-} // namespace box3web
-} // namespace esphome
+struct Path {
+  static constexpr char separator = '/';
+
+  /* Return the name of the file */
+  static std::string file_name(std::string const &);
+
+  /* Is the path an absolute path? */
+  static bool is_absolute(std::string const &);
+
+  /* Does the path have a trailing slash? */
+  static bool trailing_slash(std::string const &);
+
+  /* Join two path */
+  static std::string join(std::string const &, std::string const &);
+
+  static std::string remove_root_path(std::string path, std::string const &root);
+};
+
+}  // namespace box3web
+}  // namespace esphome
