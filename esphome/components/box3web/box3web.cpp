@@ -12,8 +12,8 @@ Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
 
 void Box3Web::setup() { 
   this->base_->add_handler(this);
-  // Enregistrer gestionnaire spécifique pour les POST (uploads)
-  this->base_->get_server()->onFileUpload([this](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
+  // Register file upload handler - using the web server's API correctly
+  this->base_->add_file_upload_handler([this](AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
     this->handleUpload(request, filename, index, data, len, final);
   });
 }
@@ -48,10 +48,9 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
       return;
     }
     else if (request->method() == HTTP_POST) {
-      // Le téléchargement sera géré par handleUpload
-      request->onDisconnect([](){
-        ESP_LOGD(TAG, "Client disconnected after upload");
-      });
+      // Upload will be handled by the upload handler
+      ESP_LOGD(TAG, "POST request received, will be handled by upload handler");
+      // Remove onDisconnect since it's not available
       return;
     }
   }
@@ -85,12 +84,18 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
   
   if (index == 0) {
     ESP_LOGD(TAG, "Starting upload of file %s to %s", file_name.c_str(), path.c_str());
-    if (!this->sd_mmc_card_->write_file(full_path.c_str(), data, len)) {
+    // Changed to handle void return type
+    this->sd_mmc_card_->write_file(full_path.c_str(), data, len);
+    // Check if file exists to determine success
+    if (!this->sd_mmc_card_->exists(full_path)) {
       ESP_LOGW(TAG, "Failed to start writing file: %s", full_path.c_str());
       return;
     }
   } else {
-    if (!this->sd_mmc_card_->append_file(full_path.c_str(), data, len)) {
+    // Changed to handle void return type
+    this->sd_mmc_card_->append_file(full_path.c_str(), data, len);
+    // Check file size to determine if append was successful
+    if (this->sd_mmc_card_->get_file_size(full_path) < index + len) {
       ESP_LOGW(TAG, "Failed to append to file: %s", full_path.c_str());
       return;
     }
@@ -278,10 +283,18 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
            path.c_str(), fileSize, contentType.c_str());
 
 #ifdef USE_ESP_IDF
-  // Pour ESP-IDF, utiliser le streaming de fichier si possible
-  request->send(this->sd_mmc_card_->get_filesystem(), path.c_str(), contentType);
+  // Modified to handle missing get_filesystem method
+  // Read file and send directly instead
+  auto file = this->sd_mmc_card_->read_file(path);
+  if (file.size() == 0) {
+    request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
+    return;
+  }
+  auto *response = request->beginResponse_P(200, contentType, file.data(), file.size());
+  response->addHeader("Content-Disposition", "attachment; filename=\"" + String(Path::file_name(path).c_str()) + "\"");
+  request->send(response);
 #else
-  // Fallback pour les autres plateformes
+  // Fallback for other platforms - same implementation
   auto file = this->sd_mmc_card_->read_file(path);
   if (file.size() == 0) {
     request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
