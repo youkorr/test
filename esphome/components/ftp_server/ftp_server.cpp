@@ -52,7 +52,10 @@ void FTPServer::setup() {
 
   fcntl(ftp_server_socket_, F_SETFL, O_NONBLOCK);
 
-  ESP_LOGI(TAG, "FTP server started on port %d", port_);
+  // Force root_path_ to end with a slash
+  if (root_path_.back() != '/') {
+    root_path_ += '/';
+  }
   ESP_LOGI(TAG, "Root directory: %s", root_path_.c_str());
   current_path_ = root_path_;
 }
@@ -156,7 +159,7 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     } else {
       std::string full_path;
       if (path[0] == '/') {
-        full_path = root_path_ + path;
+        full_path = root_path_.substr(0, root_path_.length() -1) + path;
       } else {
         full_path = client_current_paths_[client_index] + "/" + path;
       }
@@ -164,25 +167,32 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       if (path == "/") {
         full_path = root_path_;
       }
-
+      ESP_LOGD(TAG, "Attempting to change directory to: %s", full_path.c_str());
       DIR *dir = opendir(full_path.c_str());
       if (dir != nullptr) {
         closedir(dir);
         client_current_paths_[client_index] = full_path;
         send_response(client_socket, 250, "Directory successfully changed");
       } else {
+        ESP_LOGE(TAG, "Failed to change directory. errno: %d", errno);
         send_response(client_socket, 550, "Failed to change directory");
       }
     }
   } else if (cmd_str.find("CDUP") == 0) {
     std::string current = client_current_paths_[client_index];
     size_t pos = current.find_last_of('/');
-    if (pos != std::string::npos && current.length() > root_path_.length()) {
-      client_current_paths_[client_index] = current.substr(0, pos);
-      send_response(client_socket, 250, "Directory successfully changed");
-    } else {
-      send_response(client_socket, 550, "Failed to change directory");
-    }
+
+        if (pos != std::string::npos && client_current_paths_[client_index] != root_path_) {
+          std::string new_path = current.substr(0, pos);
+          if (new_path.empty()) {
+              client_current_paths_[client_index] = root_path_; //On est à la racine
+          } else {
+              client_current_paths_[client_index] = new_path;
+          }
+          send_response(client_socket, 250, "Directory successfully changed");
+        } else {
+          send_response(client_socket, 550, "Failed to change directory");
+        }
   } else if (cmd_str.find("PASV") == 0) {
     if (start_passive_mode(client_socket)) {
       passive_mode_enabled_ = true;
@@ -338,8 +348,8 @@ int FTPServer::open_data_connection(int client_socket) {
     return -1;
   }
 
-  int flags = fcntl(data_socket, F_GETFL, 0);
-  fcntl(data_socket, F_SETFL, flags & ~O_NONBLOCK);
+  //int flags = fcntl(data_socket, F_GETFL, 0);
+  //fcntl(data_socket, F_SETFL, flags & ~O_NONBLOCK);
 
   return data_socket;
 }
@@ -362,6 +372,7 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
 
   DIR *dir = opendir(path.c_str());
   if (dir == nullptr) {
+    ESP_LOGE(TAG, "opendir failed with errno: %d", errno);
     close(data_socket);
     close_data_connection(client_socket);
     send_response(client_socket, 550, "Failed to open directory");
@@ -374,7 +385,6 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
     if (entry_name == "." || entry_name == "..") {
       continue;
     }
-
     std::string full_path = path + "/" + entry_name;
     struct stat entry_stat;
     if (stat(full_path.c_str(), &entry_stat) == 0) {
@@ -399,6 +409,8 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
                perm_str, (long)entry_stat.st_size, time_str, entry_name.c_str());
       
       send(data_socket, list_item, strlen(list_item), 0);
+    } else {
+       ESP_LOGW(TAG, "stat failed for %s with errno: %d", full_path.c_str(), errno);
     }
   }
 
@@ -452,8 +464,8 @@ void FTPServer::start_file_download(int client_socket, const std::string& path) 
 
   char buffer[2048];
   int len;
-  while ((len = read(file_fd, buffer, sizeof(buffer))) > 0) {
-    send(data_socket, buffer, len, 0);
+  while ((len = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
+    write(file_fd, buffer, len);
   }
 
   close(file_fd);
@@ -463,11 +475,12 @@ void FTPServer::start_file_download(int client_socket, const std::string& path) 
 }
 
 bool FTPServer::is_running() const {
-  return ftp_server_socket_ != -1;
+    return ftp_server_socket_ != -1;
 }
 
 }  // namespace ftp_server
 }  // namespace esphome
+
 
 
 
