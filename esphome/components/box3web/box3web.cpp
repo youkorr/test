@@ -38,15 +38,15 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
       this->handle_delete(request);
       return;
     }
-    // Gérer les requêtes POST pour les uploads
-    if (request->method() == HTTP_POST && request->contentType() == "multipart/form-data") {
-      this->handle_upload(request);
+    // Vérifier si la requête POST est multipart/form-data
+    if (request->method() == HTTP_POST && request->header("Content-Type").indexOf("multipart/form-data") != -1) {
+      this->handleUpload(request);
       return;
     }
   }
 }
 
-void Box3Web::handle_upload(AsyncWebServerRequest *request) {
+void Box3Web::handleUpload(AsyncWebServerRequest *request) {
   if (!this->upload_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
     return;
