@@ -42,10 +42,6 @@ class Box3Web : public Component, public AsyncWebHandler {
   void handle_get(AsyncWebServerRequest *) const;
   void handle_delete(AsyncWebServerRequest *);
   void handle_download(AsyncWebServerRequest *, std::string const &) const;
-
-  // Ajout des nouvelles méthodes
-  std::string get_file_type(const std::string &file_name) const;
-  std::string format_size(uint64_t size) const;
 };
 
 struct Path {
@@ -68,3 +64,4 @@ struct Path {
 
 }  // namespace box3web
 }  // namespace esphome
+
