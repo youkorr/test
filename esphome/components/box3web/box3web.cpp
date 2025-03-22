@@ -1,4 +1,4 @@
-#include "box3web.h.h"
+#include "box3web.h"
 #include "esphome/core/log.h"
 #include "esphome/components/network/util.h"
 #include "esphome/core/helpers.h"
