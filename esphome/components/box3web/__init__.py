@@ -37,5 +37,3 @@ async def to_code(config):
     
     cg.add_build_flag('-DUSE_BOX3WEB')
     
-    if CORE.is_esp32:
-        cg.add_platformio_option("board_build.partitions", "min_spiffs.csv")
