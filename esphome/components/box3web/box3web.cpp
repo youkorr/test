@@ -55,17 +55,18 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
     return;
   }
   std::string file_name(filename.c_str());
+  std::string full_path = Path::join(path, file_name);
+
   if (index == 0) {
     ESP_LOGD(TAG, "uploading file %s to %s", file_name.c_str(), path.c_str());
-    if (!this->sd_mmc_card_->create_file(Path::join(path, file_name).c_str())) {
+    if (!this->sd_mmc_card_->write_file(full_path.c_str(), data, len, true)) { // overwrite = true pour la première écriture
       request->send(500, "application/json", "{ \"error\": \"failed to create file\" }");
       return;
     }
+  } else {
+    this->sd_mmc_card_->append_file(full_path.c_str(), data, len);
   }
-  if (!this->sd_mmc_card_->append_file(Path::join(path, file_name).c_str(), data, len)) {
-    request->send(500, "application/json", "{ \"error\": \"failed to append to file\" }");
-    return;
-  }
+
   if (final) {
     auto response = request->beginResponse(201, "text/html", "upload success");
     response->addHeader("Connection", "close");
@@ -210,17 +211,22 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     return;
   }
 
-  if (!this->sd_mmc_card_->exists(path)) {
-    request->send(404, "application/json", "{ \"error\": \"file not found\" }");
+  size_t fileSize = this->sd_mmc_card_->file_size(path);
+
+  AsyncWebServerResponse *response = request->beginResponse(
+    [this, path](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+      return this->sd_mmc_card_->read_file_block(path, buffer, maxLen, index);
+    },
+    fileSize,
+    "application/octet-stream"
+  );
+
+  if (response == nullptr) {
+    request->send(500, "text/plain", "Failed to create response");
     return;
   }
 
-  AsyncWebServerResponse *response = request->beginResponse(
-      [this, path](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-        return this->sd_mmc_card_->read_file_block(path, buffer, maxLen, index);
-      },
-      this->sd_mmc_card_->file_size(path), "application/octet-stream");
-
+  response->setContentDisposition("attachment; filename=\"" + Path::file_name(path).c_str() + "\"");
   request->send(response);
 }
 
@@ -295,6 +301,7 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
 
 }  // namespace box3web
 }  // namespace esphome
+
 
 
 
