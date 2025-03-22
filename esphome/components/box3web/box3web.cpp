@@ -1,34 +1,34 @@
-#include "box3web.h"
+#include "box3web.h.h"
 #include "esphome/core/log.h"
 #include "esphome/components/network/util.h"
 #include "esphome/core/helpers.h"
 
 namespace esphome {
-namespace box3web {
+namespace sd_file_server {
 
-static const char *TAG = "box3web";
+static const char *TAG = "sd_file_server";
 
-Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
+SDFileServer::SDFileServer(web_server_base::WebServerBase *base) : base_(base) {}
 
-void Box3Web::setup() { this->base_->add_handler(this); }
+void SDFileServer::setup() { this->base_->add_handler(this); }
 
-void Box3Web::dump_config() {
-  ESP_LOGCONFIG(TAG, "Box3Web File Server:");
+void SDFileServer::dump_config() {
+  ESP_LOGCONFIG(TAG, "SD File Server:");
   ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), this->base_->get_port());
   ESP_LOGCONFIG(TAG, "  Url Prefix: %s", this->url_prefix_.c_str());
   ESP_LOGCONFIG(TAG, "  Root Path: %s", this->root_path_.c_str());
-  ESP_LOGCONFIG(TAG, "  Deletion Enabled: %s", TRUEFALSE(this->deletion_enabled_));
+  ESP_LOGCONFIG(TAG, "  Deletation Enabled: %s", TRUEFALSE(this->deletion_enabled_));
   ESP_LOGCONFIG(TAG, "  Download Enabled : %s", TRUEFALSE(this->download_enabled_));
   ESP_LOGCONFIG(TAG, "  Upload Enabled : %s", TRUEFALSE(this->upload_enabled_));
 }
 
-bool Box3Web::canHandle(AsyncWebServerRequest *request) {
+bool SDFileServer::canHandle(AsyncWebServerRequest *request) {
   ESP_LOGD(TAG, "can handle %s %u", request->url().c_str(),
            str_startswith(std::string(request->url().c_str()), this->build_prefix()));
   return str_startswith(std::string(request->url().c_str()), this->build_prefix());
 }
 
-void Box3Web::handleRequest(AsyncWebServerRequest *request) {
+void SDFileServer::handleRequest(AsyncWebServerRequest *request) {
   ESP_LOGD(TAG, "%s", request->url().c_str());
   if (str_startswith(std::string(request->url().c_str()), this->build_prefix())) {
     if (request->method() == HTTP_GET) {
@@ -42,7 +42,7 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
   }
 }
 
-void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
+void SDFileServer::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
                                 size_t len, bool final) {
   if (!this->upload_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
@@ -72,19 +72,19 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
   }
 }
 
-void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
+void SDFileServer::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
 
-void Box3Web::set_root_path(std::string const &path) { this->root_path_ = path; }
+void SDFileServer::set_root_path(std::string const &path) { this->root_path_ = path; }
 
-void Box3Web::set_sd_mmc_card(sd_mmc_card::SdMmc *card) { this->sd_mmc_card_ = card; }
+void SDFileServer::set_sd_mmc_card(sd_mmc_card::SdMmc *card) { this->sd_mmc_card_ = card; }
 
-void Box3Web::set_deletion_enabled(bool allow) { this->deletion_enabled_ = allow; }
+void SDFileServer::set_deletion_enabled(bool allow) { this->deletion_enabled_ = allow; }
 
-void Box3Web::set_download_enabled(bool allow) { this->download_enabled_ = allow; }
+void SDFileServer::set_download_enabled(bool allow) { this->download_enabled_ = allow; }
 
-void Box3Web::set_upload_enabled(bool allow) { this->upload_enabled_ = allow; }
+void SDFileServer::set_upload_enabled(bool allow) { this->upload_enabled_ = allow; }
 
-void Box3Web::handle_get(AsyncWebServerRequest *request) const {
+void SDFileServer::handle_get(AsyncWebServerRequest *request) const {
   std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
   std::string path = this->build_absolute_path(extracted);
 
@@ -96,7 +96,7 @@ void Box3Web::handle_get(AsyncWebServerRequest *request) const {
   handle_index(request, path);
 }
 
-void Box3Web::write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const {
+void SDFileServer::write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const {
   std::string uri = "/" + Path::join(this->url_prefix_, Path::remove_root_path(info.path, this->root_path_));
   std::string file_name = Path::file_name(info.path);
   response->print("<tr><td>");
@@ -127,7 +127,7 @@ void Box3Web::write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo con
   response->print("</td></tr>");
 }
 
-void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &path) const {
+void SDFileServer::handle_index(AsyncWebServerRequest *request, std::string const &path) const {
   AsyncResponseStream *response = request->beginResponseStream("text/html");
   response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8><meta "
                     "name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
@@ -164,7 +164,7 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
   request->send(response);
 }
 
-void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const &path) const {
+void SDFileServer::handle_download(AsyncWebServerRequest *request, std::string const &path) const {
   if (!this->download_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file download is disabled\" }");
     return;
@@ -185,7 +185,7 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
   request->send(response);
 }
 
-void Box3Web::handle_delete(AsyncWebServerRequest *request) {
+void SDFileServer::handle_delete(AsyncWebServerRequest *request) {
   if (!this->deletion_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file deletion is disabled\" }");
     return;
@@ -203,18 +203,18 @@ void Box3Web::handle_delete(AsyncWebServerRequest *request) {
   request->send(401, "application/json", "{ \"error\": \"failed to delete file\" }");
 }
 
-std::string Box3Web::build_prefix() const {
+std::string SDFileServer::build_prefix() const {
   if (this->url_prefix_.length() == 0 || this->url_prefix_.at(0) != '/')
     return "/" + this->url_prefix_;
   return this->url_prefix_;
 }
 
-std::string Box3Web::extract_path_from_url(std::string const &url) const {
+std::string SDFileServer::extract_path_from_url(std::string const &url) const {
   std::string prefix = this->build_prefix();
   return url.substr(prefix.size(), url.size() - prefix.size());
 }
 
-std::string Box3Web::build_absolute_path(std::string relative_path) const {
+std::string SDFileServer::build_absolute_path(std::string relative_path) const {
   if (relative_path.size() == 0)
     return this->root_path_;
 
