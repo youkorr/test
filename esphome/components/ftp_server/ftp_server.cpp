@@ -52,7 +52,7 @@ void FTPServer::setup() {
 
   fcntl(ftp_server_socket_, F_SETFL, O_NONBLOCK);
 
-  // Force root_path_ to end with a slash
+    // Force root_path_ to end with a slash
   if (root_path_.back() != '/') {
     root_path_ += '/';
   }
@@ -165,8 +165,10 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
 
       if (path[0] == '/') {
         full_path = root_path_.substr(0, root_path_.length() -1) + path;
+           ESP_LOGD(TAG, "CWD - Absolute path, full_path (without root slash): %s", full_path.c_str());
       } else {
         full_path = client_current_paths_[client_index] + "/" + path;
+         ESP_LOGD(TAG, "CWD - Relative path, full_path: %s", full_path.c_str());
       }
 
       ESP_LOGD(TAG, "CWD - Attempting to change directory to: %s", full_path.c_str());
@@ -174,7 +176,7 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       if (dir != nullptr) {
         closedir(dir);
         client_current_paths_[client_index] = full_path;
-        ESP_LOGD(TAG, "CWD - Directory successfully changed to: %s", client_current_paths_[client_index].c_str());
+         ESP_LOGD(TAG, "CWD - Directory successfully changed to: %s", client_current_paths_[client_index].c_str());
         send_response(client_socket, 250, "Directory successfully changed");
       } else {
         ESP_LOGE(TAG, "CWD - Failed to change directory. errno: %d", errno);
@@ -184,8 +186,9 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
   } else if (cmd_str.find("CDUP") == 0) {
     std::string current = client_current_paths_[client_index];
     size_t pos = current.find_last_of('/');
-    ESP_LOGD(TAG, "CDUP - current path: %s", current.c_str());
-    ESP_LOGD(TAG, "CDUP - root_path_: %s", root_path_.c_str());
+     ESP_LOGD(TAG, "CDUP - current path: %s", current.c_str());
+     ESP_LOGD(TAG, "CDUP - root_path_: %s", root_path_.c_str());
+
         if (pos != std::string::npos && client_current_paths_[client_index] != root_path_) {
           std::string new_path = current.substr(0, pos);
           if (new_path.empty()) {
@@ -193,11 +196,11 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
               ESP_LOGD(TAG, "CDUP - Changed directory to root: %s", client_current_paths_[client_index].c_str());
           } else {
               client_current_paths_[client_index] = new_path;
-              ESP_LOGD(TAG, "CDUP - Changed directory to: %s", client_current_paths_[client_index].c_str());
+               ESP_LOGD(TAG, "CDUP - Changed directory to: %s", client_current_paths_[client_index].c_str());
           }
           send_response(client_socket, 250, "Directory successfully changed");
         } else {
-          ESP_LOGD(TAG, "CDUP - Failed to change directory (already at root or error)");
+           ESP_LOGD(TAG, "CDUP - Failed to change directory (already at root or error)");
           send_response(client_socket, 550, "Failed to change directory");
         }
   } else if (cmd_str.find("PASV") == 0) {
@@ -208,7 +211,7 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("LIST") == 0) {
     std::string path = client_current_paths_[client_index];
-    ESP_LOGD(TAG, "LIST - Listing directory: %s", path.c_str());
+     ESP_LOGD(TAG, "LIST - Listing directory: %s", path.c_str());
     send_response(client_socket, 150, "Opening ASCII mode data connection for file list");
     list_directory(client_socket, path);
   } else if (cmd_str.find("STOR") == 0) {
@@ -393,11 +396,11 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
     if (entry_name == "." || entry_name == "..") {
       continue;
     }
-    //std::string full_path = path + "/" + entry_name; //Incorrect!
 
     char full_path[256]; // Adjust size as needed
     snprintf(full_path, sizeof(full_path), "%s%s", path.c_str(), entry_name.c_str()); // path already includes trailing slash
     std::string full_path_str(full_path);
+     ESP_LOGD(TAG, "LIST - full_path for stat: %s", full_path_str.c_str());
 
     struct stat entry_stat;
     if (stat(full_path_str.c_str(), &entry_stat) == 0) {
@@ -493,6 +496,7 @@ bool FTPServer::is_running() const {
 
 }  // namespace ftp_server
 }  // namespace esphome
+
 
 
 
