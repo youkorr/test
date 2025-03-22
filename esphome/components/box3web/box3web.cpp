@@ -67,7 +67,7 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filenam
   }
 
   ESP_LOGD(TAG, "Writing chunk %d of %d bytes", index, len);
-  if (!this->append_file(full_file_path.c_str(), data, len)) {
+  if (!this->append_file_(full_file_path.c_str(), data, len)) {
         ESP_LOGE(TAG, "Failed to write file");
         request->send(500, "application/json", "{ \"error\": \"file write failed\" }");
         return;
@@ -82,7 +82,7 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filenam
 }
 
 
-bool Box3Web::append_file(const char *path, uint8_t *data, size_t len) {
+bool Box3Web::append_file_(const char *path, uint8_t *data, size_t len) {
     //Open in append mode
     FILE *file = fopen(path, "a");
     if (file == NULL) {
@@ -348,6 +348,7 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
 
 }  // namespace box3web
 }  // namespace esphome
+
 
 
 
