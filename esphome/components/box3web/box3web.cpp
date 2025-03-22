@@ -828,3 +828,4 @@ void Box3WebComponent::loop() {
 }  // namespace box3web
 }  // namespace esphome	
 
+
