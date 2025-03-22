@@ -10,8 +10,8 @@ static const char *TAG = "box3web";
 
 Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
 
-void Box3Web::setup() { 
-  this->base_->add_handler(this); 
+void Box3Web::setup() {
+  this->base_->add_handler(this);
 }
 
 void Box3Web::dump_config() {
@@ -38,12 +38,8 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
       this->handle_delete(request);
       return;
     }
-    // The handleUpload function will be automatically called by the server
-    // when a multipart form upload is detected, no need to manually call it here.
-    // Just ensure the handler is properly registered via addHandler().
   }
 }
-
 
 void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final) {
   if (!this->upload_enabled_) {
@@ -71,7 +67,11 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filenam
   }
 
   ESP_LOGD(TAG, "Writing chunk %d of %d bytes", index, len);
-  this->sd_mmc_card_->append_file(full_file_path.c_str(), data, len);
+  if (!this->append_file(full_file_path.c_str(), data, len)) {
+        ESP_LOGE(TAG, "Failed to write file");
+        request->send(500, "application/json", "{ \"error\": \"file write failed\" }");
+        return;
+  }
 
   if (final) {
     ESP_LOGD(TAG, "Upload complete: %s, size: %d bytes", filename.c_str(), index + len);
@@ -81,6 +81,23 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String& filenam
   }
 }
 
+
+bool Box3Web::append_file(const char *path, uint8_t *data, size_t len) {
+    //Open in append mode
+    FILE *file = fopen(path, "a");
+    if (file == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for appending");
+        return false;
+    }
+    size_t bytes_written = fwrite(data, 1, len, file);
+    fclose(file);
+
+    if (bytes_written != len) {
+        ESP_LOGE(TAG, "File write failed");
+        return false;
+    }
+    return true;
+}
 
 void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
 
@@ -329,26 +346,9 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
   return path.erase(0, root.size());
 }
 
-// Helper to append to a file, creating it if it doesn't exist
-bool SdMmc::append_file(const char *path, uint8_t *data, size_t len) {
-    //Open in append mode
-    FILE *file = fopen(path, "a");
-    if (file == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for appending");
-        return false;
-    }
-    size_t bytes_written = fwrite(data, 1, len, file);
-    fclose(file);
-
-    if (bytes_written != len) {
-        ESP_LOGE(TAG, "File write failed");
-        return false;
-    }
-    return true;
-}
-
 }  // namespace box3web
 }  // namespace esphome
+
 
 
 
