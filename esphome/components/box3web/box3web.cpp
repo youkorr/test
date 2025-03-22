@@ -3,6 +3,13 @@
 #include "esphome/components/network/util.h"
 #include "esphome/core/helpers.h"
 
+#ifdef USE_ESP_IDF
+#include <ESPAsyncWebServer.h>
+#else
+#include <FS.h>
+#include <ESP8266WebServer.h>
+#endif
+
 namespace esphome {
 namespace box3web {
 
@@ -56,15 +63,8 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
   }
   std::string file_name(filename.c_str());
   std::string full_path = Path::join(path, file_name);
-
-  if (index == 0) {
-    ESP_LOGD(TAG, "uploading file %s to %s", file_name.c_str(), path.c_str());
-    // Utiliser "wb" pour écraser le fichier lors du premier bloc
-    this->sd_mmc_card_->write_file(full_path.c_str(), data, len, "wb");
-  } else {
-    // Utiliser "ab" pour ajouter au fichier lors des blocs suivants
-    this->sd_mmc_card_->write_file(full_path.c_str(), data, len, "ab");
-  }
+  const char* mode = index == 0 ? "wb" : "ab";
+  this->sd_mmc_card_->write_file(full_path.c_str(), data, len, mode);
 
   if (final) {
     auto response = request->beginResponse(201, "text/html", "upload success");
@@ -211,14 +211,22 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
   }
 
   auto file = this->sd_mmc_card_->read_file(path);
-  if (file.empty()) { // Vérifier si le vecteur est vide
-    request->send(404, "application/json", "{ \"error\": \"failed to read file or file not found\" }");
+  if (file.size() == 0) {
+    request->send(401, "application/json", "{ \"error\": \"failed to read file\" }");
     return;
   }
 
-  AsyncWebServerResponse *response = request->beginResponse(200, "application/octet-stream", file.data(), file.size());
+  // Déterminer si ESP_IDF est utilisé
+#ifdef USE_ESP_IDF
+  AsyncWebServerResponse *response = request->beginResponse_P(200, "application/octet-stream", (const char*)file.data(), file.size());
   response->setContentDisposition("attachment; filename=\"" + Path::file_name(path).c_str() + "\"");
   request->send(response);
+#else
+  // Gestion pour ESP8266 (si nécessaire, adaptez)
+  auto *response = request->beginResponseStream("application/octet-stream");
+  response->write((const uint8_t*)file.data(), file.size());
+  request->send(response);
+#endif
 }
 
 
@@ -293,6 +301,7 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
 
 }  // namespace box3web
 }  // namespace esphome
+
 
 
 
