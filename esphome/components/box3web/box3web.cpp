@@ -12,12 +12,6 @@ Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
 
 void Box3Web::setup() {
   this->base_->add_handler(this);
-
-  // Ajouter un gestionnaire pour les uploads de fichiers (multipart/form-data)
-  this->base_->onFileUpload(
-      [this](AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data, size_t len, bool final) {
-        this->handleUpload(request, filename, index, data, len, final);
-      });
 }
 
 void Box3Web::dump_config() {
@@ -44,15 +38,15 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
       this->handle_delete(request);
       return;
     }
-    // Ignorer les requêtes POST ici, car elles sont gérées par onFileUpload
-    if (request->method() == HTTP_POST) {
-      return; // Les uploads sont gérés par onFileUpload
+    // Gérer les requêtes POST pour les uploads
+    if (request->method() == HTTP_POST && request->contentType() == "multipart/form-data") {
+      this->handle_upload(request);
+      return;
     }
   }
 }
 
-void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
-                           size_t len, bool final) {
+void Box3Web::handle_upload(AsyncWebServerRequest *request) {
   if (!this->upload_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
     return;
@@ -61,28 +55,30 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
   std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
   std::string path = this->build_absolute_path(extracted);
 
-  if (index == 0 && !this->sd_mmc_card_->is_directory(path)) {
+  // Vérifier si le chemin est un dossier valide
+  if (!this->sd_mmc_card_->is_directory(path)) {
     auto response = request->beginResponse(401, "application/json", "{ \"error\": \"invalid upload folder\" }");
     response->addHeader("Connection", "close");
     request->send(response);
     return;
   }
 
-  std::string file_name(filename.c_str());
-  if (index == 0) {
-    ESP_LOGD(TAG, "Uploading file %s to %s", file_name.c_str(), path.c_str());
-    this->sd_mmc_card_->write_file(Path::join(path, file_name).c_str(), data, len);
-    return;
+  // Traiter les fichiers uploadés
+  for (size_t i = 0; i < request->args(); i++) {
+    AsyncWebParameter *param = request->getParam(i);
+    if (param->isFile()) {
+      std::string file_name = param->name().c_str();
+      uint8_t *data = (uint8_t *)param->value().c_str();
+      size_t len = param->value().length();
+
+      ESP_LOGD(TAG, "Uploading file %s to %s", file_name.c_str(), path.c_str());
+      this->sd_mmc_card_->write_file(Path::join(path, file_name).c_str(), data, len);
+    }
   }
 
-  this->sd_mmc_card_->append_file(Path::join(path, file_name).c_str(), data, len);
-
-  if (final) {
-    auto response = request->beginResponse(201, "text/html", "Upload success");
-    response->addHeader("Connection", "close");
-    request->send(response);
-    return;
-  }
+  auto response = request->beginResponse(201, "text/html", "Upload success");
+  response->addHeader("Connection", "close");
+  request->send(response);
 }
 
 void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
@@ -258,7 +254,7 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
 #endif
 
   // Ajouter l'en-tête Content-Disposition pour forcer le téléchargement
-  response->addHeader("Content-Disposition", "attachment; filename=\"" + file_name + "\"");
+  response->addHeader("Content-Disposition", ("attachment; filename=\"" + file_name + "\"").c_str());
 
   // Envoyer la réponse
   request->send(response);
