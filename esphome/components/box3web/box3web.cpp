@@ -1,376 +1,257 @@
 #include "box3web.h"
 #include "esphome/core/log.h"
-#include <esp_vfs.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <cstring>
+#include "esphome/components/network/util.h"
+#include "esphome/core/helpers.h"
 
 namespace esphome {
 namespace box3web {
 
 static const char *TAG = "box3web";
 
-// Initialize static instance pointer
-Box3WebComponent *Box3WebComponent::instance = nullptr;
+Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
 
-Box3WebComponent::Box3WebComponent() {
-  instance = this;
-}
+void Box3Web::setup() { this->base_->add_handler(this); }
 
-void Box3WebComponent::setup() {
-  ESP_LOGD(TAG, "Setting up Box3Web HTTP File Server");
-  
-  // Check if SD card is mounted
-  if (!sd_mmc_card::global_sd_card->is_mounted()) {
-    ESP_LOGE(TAG, "SD card is not mounted. HTTP File Server cannot be initialized.");
-    this->mark_failed();
-    return;
-  }
-  
-  // Setup the HTTP server
-  this->setup_server();
-}
-
-void Box3WebComponent::dump_config() {
-  ESP_LOGCONFIG(TAG, "Box3Web HTTP File Server:");
-  ESP_LOGCONFIG(TAG, "  URL Prefix: /%s", this->url_prefix_.c_str());
+void Box3Web::dump_config() {
+  ESP_LOGCONFIG(TAG, "Box3Web File Server:");
+  ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), this->base_->get_port());
+  ESP_LOGCONFIG(TAG, "  Url Prefix: %s", this->url_prefix_.c_str());
   ESP_LOGCONFIG(TAG, "  Root Path: %s", this->root_path_.c_str());
-  ESP_LOGCONFIG(TAG, "  Enable Deletion: %s", YESNO(this->enable_deletion_));
-  ESP_LOGCONFIG(TAG, "  Enable Download: %s", YESNO(this->enable_download_));
-  ESP_LOGCONFIG(TAG, "  Enable Upload: %s", YESNO(this->enable_upload_));
+  ESP_LOGCONFIG(TAG, "  Deletion Enabled: %s", TRUEFALSE(this->deletion_enabled_));
+  ESP_LOGCONFIG(TAG, "  Download Enabled : %s", TRUEFALSE(this->download_enabled_));
+  ESP_LOGCONFIG(TAG, "  Upload Enabled : %s", TRUEFALSE(this->upload_enabled_));
 }
 
-float Box3WebComponent::get_setup_priority() const {
-  return setup_priority::LATE;
+bool Box3Web::canHandle(AsyncWebServerRequest *request) {
+  ESP_LOGD(TAG, "can handle %s %u", request->url().c_str(),
+           str_startswith(std::string(request->url().c_str()), this->build_prefix()));
+  return str_startswith(std::string(request->url().c_str()), this->build_prefix());
 }
 
-void Box3WebComponent::setup_server() {
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 10;
-  config.stack_size = 8192;
-  
-  // Start the httpd server
-  ESP_LOGI(TAG, "Starting HTTP server");
-  esp_err_t ret = httpd_start(&this->server_, &config);
-  if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start HTTP server: %s", esp_err_to_name(ret));
-    this->mark_failed();
+void Box3Web::handleRequest(AsyncWebServerRequest *request) {
+  ESP_LOGD(TAG, "%s", request->url().c_str());
+  if (str_startswith(std::string(request->url().c_str()), this->build_prefix())) {
+    if (request->method() == HTTP_GET) {
+      this->handle_get(request);
+      return;
+    }
+    if (request->method() == HTTP_DELETE) {
+      this->handle_delete(request);
+      return;
+    }
+  }
+}
+
+void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
+                                size_t len, bool final) {
+  if (!this->upload_enabled_) {
+    request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
     return;
   }
-  
-  // Register URI handlers
-  this->register_handlers();
-  ESP_LOGI(TAG, "HTTP server started successfully");
+  std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
+  std::string path = this->build_absolute_path(extracted);
+
+  if (index == 0 && !this->sd_mmc_card_->is_directory(path)) {
+    auto response = request->beginResponse(401, "application/json", "{ \"error\": \"invalid upload folder\" }");
+    response->addHeader("Connection", "close");
+    request->send(response);
+    return;
+  }
+  std::string file_name(filename.c_str());
+  if (index == 0) {
+    ESP_LOGD(TAG, "uploading file %s to %s", file_name.c_str(), path.c_str());
+    this->sd_mmc_card_->write_file(Path::join(path, file_name).c_str(), data, len);
+    return;
+  }
+  this->sd_mmc_card_->append_file(Path::join(path, file_name).c_str(), data, len);
+  if (final) {
+    auto response = request->beginResponse(201, "text/html", "upload success");
+    response->addHeader("Connection", "close");
+    request->send(response);
+    return;
+  }
 }
 
-void Box3WebComponent::register_handlers() {
-  // Main index page handler
-  httpd_uri_t index_uri = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = &Box3WebComponent::index_handler,
-    .user_ctx = nullptr
-  };
-  httpd_register_uri_handler(this->server_, &index_uri);
-  
-  // File download handler
-  httpd_uri_t download_uri = {
-    .uri = "/download",
-    .method = HTTP_GET,
-    .handler = &Box3WebComponent::download_handler,
-    .user_ctx = nullptr
-  };
-  httpd_register_uri_handler(this->server_, &download_uri);
-  
-  // File delete handler
-  httpd_uri_t delete_uri = {
-    .uri = "/delete",
-    .method = HTTP_POST,
-    .handler = &Box3WebComponent::delete_handler,
-    .user_ctx = nullptr
-  };
-  httpd_register_uri_handler(this->server_, &delete_uri);
-  
-  // File upload handler
-  httpd_uri_t upload_uri = {
-    .uri = "/upload",
-    .method = HTTP_POST,
-    .handler = &Box3WebComponent::upload_handler,
-    .user_ctx = nullptr
-  };
-  httpd_register_uri_handler(this->server_, &upload_uri);
+void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
+
+void Box3Web::set_root_path(std::string const &path) { this->root_path_ = path; }
+
+void Box3Web::set_sd_mmc_card(sd_mmc_card::SdMmc *card) { this->sd_mmc_card_ = card; }
+
+void Box3Web::set_deletion_enabled(bool allow) { this->deletion_enabled_ = allow; }
+
+void Box3Web::set_download_enabled(bool allow) { this->download_enabled_ = allow; }
+
+void Box3Web::set_upload_enabled(bool allow) { this->upload_enabled_ = allow; }
+
+void Box3Web::handle_get(AsyncWebServerRequest *request) const {
+  std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
+  std::string path = this->build_absolute_path(extracted);
+
+  if (!this->sd_mmc_card_->is_directory(path)) {
+    handle_download(request, path);
+    return;
+  }
+
+  handle_index(request, path);
 }
 
-bool Box3WebComponent::is_valid_path(const std::string &path) {
-  if (path.find("..") != std::string::npos) {
-    return false;
+void Box3Web::write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const {
+  std::string uri = "/" + Path::join(this->url_prefix_, Path::remove_root_path(info.path, this->root_path_));
+  std::string file_name = Path::file_name(info.path);
+  response->print("<tr><td>");
+  if (info.is_directory) {
+    response->print("<a href=\"");
+    response->print(uri.c_str());
+    response->print("\">");
+    response->print(file_name.c_str());
+    response->print("</a>");
+  } else {
+    response->print(file_name.c_str());
   }
-  return true;
+  response->print("</td><td>");
+  if (!info.is_directory) {
+    if (this->download_enabled_) {
+      response->print("<button onClick=\"download_file('");
+      response->print(uri.c_str());
+      response->print("','");
+      response->print(file_name.c_str());
+      response->print("')\">Download</button>");
+    }
+    if (this->deletion_enabled_) {
+      response->print("<button onClick=\"delete_file('");
+      response->print(uri.c_str());
+      response->print("')\">Delete</button>");
+    }
+  }
+  response->print("</td></tr>");
 }
 
-std::string Box3WebComponent::get_content_type(const std::string &path) {
-  if (path.ends_with(".html")) return "text/html";
-  if (path.ends_with(".css")) return "text/css";
-  if (path.ends_with(".js")) return "application/javascript";
-  if (path.ends_with(".json")) return "application/json";
-  if (path.ends_with(".png")) return "image/png";
-  if (path.ends_with(".jpg") || path.ends_with(".jpeg")) return "image/jpeg";
-  if (path.ends_with(".gif")) return "image/gif";
-  if (path.ends_with(".ico")) return "image/x-icon";
-  if (path.ends_with(".txt")) return "text/plain";
-  if (path.ends_with(".yaml") || path.ends_with(".yml")) return "text/yaml";
-  if (path.ends_with(".mp3") || path.ends_with(".wav")) return "audio/mpeg";
-  return "application/octet-stream";
+void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &path) const {
+  AsyncResponseStream *response = request->beginResponseStream("text/html");
+  response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8><meta "
+                    "name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
+                    "</head><body>"
+                    "<h1>SD Card Content</h1><h2>Folder "));
+
+  response->print(path.c_str());
+  response->print(F("</h2>"));
+  if (this->upload_enabled_)
+    response->print(F("<form method=\"POST\" enctype=\"multipart/form-data\">"
+                      "<input type=\"file\" name=\"file\"><input type=\"submit\" value=\"upload\"></form>"));
+  response->print(F("<a href=\"/"));
+  response->print(this->url_prefix_.c_str());
+  response->print(F("\">Home</a></br></br><table id=\"files\"><thead><tr><th>Name<th>Actions<tbody>"));
+  auto entries = this->sd_mmc_card_->list_directory_file_info(path, 0);
+  for (auto const &entry : entries)
+    write_row(response, entry);
+
+  response->print(F("</tbody></table>"
+                    "<script>"
+                    "function delete_file(path) {fetch(path, {method: \"DELETE\"});}"
+                    "function download_file(path, filename) {"
+                    "fetch(path).then(response => response.blob())"
+                    ".then(blob => {"
+                    "const link = document.createElement('a');"
+                    "link.href = URL.createObjectURL(blob);"
+                    "link.download = filename;"
+                    "link.click();"
+                    "}).catch(console.error);"
+                    "} "
+                    "</script>"
+                    "</body></html>"));
+
+  request->send(response);
 }
 
-esp_err_t Box3WebComponent::index_handler(httpd_req_t *req) {
-  const char *html = R"(
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32-S3-BOX3 File Server</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        h1 {
-            color: #333;
-        }
-        .container {
-            background-color: #fff;
-            border-radius: 5px;
-            padding: 20px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        }
-        .file-list {
-            margin-top: 20px;
-        }
-        .file-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        .file-item:hover {
-            background-color: #f9f9f9;
-        }
-        .upload-form {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border-radius: 5px;
-        }
-        .btn {
-            padding: 8px 12px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .btn-download {
-            background-color: #2196F3;
-        }
-        .btn-delete {
-            background-color: #f44336;
-        }
-        .actions {
-            display: flex;
-            gap: 5px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>ESP32-S3-BOX3 File Server</h1>
-        
-        <div class="file-list" id="file-list">
-            Loading...
-        </div>
-        
-        <div class="upload-form">
-            <h3>Upload File</h3>
-            <form id="upload-form" enctype="multipart/form-data">
-                <input type="file" name="file" id="file-input" required>
-                <button type="submit" class="btn">Upload</button>
-            </form>
-            <div id="upload-status"></div>
-        </div>
-    </div>
-    
-    <script>
-        function loadFiles() {
-            fetch('/list')
-                .then(response => response.json())
-                .then(data => {
-                    const fileListElem = document.getElementById('file-list');
-                    fileListElem.innerHTML = '';
-                    
-                    data.files.forEach(file => {
-                        const fileElem = document.createElement('div');
-                        fileElem.className = 'file-item';
-                        fileElem.innerHTML = `
-                            <span>📄 ${file}</span>
-                            <div class="actions">
-                                <a href="/download?file=${file}" class="btn btn-download">Download</a>
-                                <button onclick="deleteFile('${file}')" class="btn btn-delete">Delete</button>
-                            </div>
-                        `;
-                        fileListElem.appendChild(fileElem);
-                    });
-                })
-                .catch(error => {
-                    console.error('Error loading files:', error);
-                    document.getElementById('file-list').innerHTML = 'Error loading files';
-                });
-        }
-        
-        function uploadFile() {
-            const fileInput = document.getElementById('file-input');
-            const file = fileInput.files[0];
-            
-            if (!file) {
-                document.getElementById('upload-status').textContent = 'Please select a file';
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            document.getElementById('upload-status').textContent = 'Uploading...';
-            
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.text())
-            .then(result => {
-                document.getElementById('upload-status').textContent = result;
-                loadFiles();
-                document.getElementById('upload-form').reset();
-            })
-            .catch(error => {
-                console.error('Error uploading file:', error);
-                document.getElementById('upload-status').textContent = 'Error uploading file';
-            });
-        }
-        
-        function deleteFile(file) {
-            if (confirm('Are you sure you want to delete this file?')) {
-                fetch('/delete', {
-                    method: 'POST',
-                    body: JSON.stringify({ file: file }),
-                    headers: { 'Content-Type': 'application/json' }
-                })
-                .then(response => response.text())
-                .then(result => {
-                    alert(result);
-                    loadFiles();
-                })
-                .catch(error => {
-                    console.error('Error deleting file:', error);
-                    alert('Error deleting file');
-                });
-            }
-        }
-        
-        document.addEventListener('DOMContentLoaded', loadFiles);
-        document.getElementById('upload-form').addEventListener('submit', function(e) {
-            e.preventDefault();
-            uploadFile();
-        });
-    </script>
-</body>
-</html>
-)";
+void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const &path) const {
+  if (!this->download_enabled_) {
+    request->send(401, "application/json", "{ \"error\": \"file download is disabled\" }");
+    return;
+  }
 
-  httpd_resp_set_type(req, "text/html");
-  httpd_resp_send(req, html, strlen(html));
-  return ESP_OK;
+  auto file = this->sd_mmc_card_->read_file(path);
+  if (file.size() == 0) {
+    request->send(401, "application/json", "{ \"error\": \"failed to read file\" }");
+    return;
+  }
+#ifdef USE_ESP_IDF
+  auto *response = request->beginResponse_P(200, "application/octet", file.data(), file.size());
+#else
+  auto *response = request->beginResponseStream("application/octet", file.size());
+  response->write(file.data(), file.size());
+#endif
+
+  request->send(response);
 }
 
-esp_err_t Box3WebComponent::download_handler(httpd_req_t *req) {
-  char file[256];
-  if (httpd_req_get_url_query_str(req, file, sizeof(file)) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing file parameter");
-    return ESP_FAIL;
+void Box3Web::handle_delete(AsyncWebServerRequest *request) {
+  if (!this->deletion_enabled_) {
+    request->send(401, "application/json", "{ \"error\": \"file deletion is disabled\" }");
+    return;
   }
-
-  std::string filepath = this->root_path_ + "/" + file;
-  if (!this->is_valid_path(filepath)) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid file path");
-    return ESP_FAIL;
+  std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
+  std::string path = this->build_absolute_path(extracted);
+  if (this->sd_mmc_card_->is_directory(path)) {
+    request->send(401, "application/json", "{ \"error\": \"cannot delete a directory\" }");
+    return;
   }
-
-  FILE *f = fopen(filepath.c_str(), "r");
-  if (!f) {
-    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-    return ESP_FAIL;
+  if (this->sd_mmc_card_->delete_file(path)) {
+    request->send(204, "application/json", "{}");
+    return;
   }
-
-  httpd_resp_set_type(req, this->get_content_type(filepath).c_str());
-  char buffer[1024];
-  size_t read_size;
-  while ((read_size = fread(buffer, 1, sizeof(buffer), f)) {
-    httpd_resp_send_chunk(req, buffer, read_size);
-  }
-  fclose(f);
-  httpd_resp_send_chunk(req, nullptr, 0);
-  return ESP_OK;
+  request->send(401, "application/json", "{ \"error\": \"failed to delete file\" }");
 }
 
-esp_err_t Box3WebComponent::delete_handler(httpd_req_t *req) {
-  char buffer[256];
-  int ret = httpd_req_recv(req, buffer, sizeof(buffer));
-  if (ret <= 0) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive data");
-    return ESP_FAIL;
-  }
-
-  std::string file = buffer;
-  std::string filepath = this->root_path_ + "/" + file;
-  if (!this->is_valid_path(filepath)) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid file path");
-    return ESP_FAIL;
-  }
-
-  if (unlink(filepath.c_str())) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to delete file");
-    return ESP_FAIL;
-  }
-
-  httpd_resp_send(req, "File deleted successfully", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
+std::string Box3Web::build_prefix() const {
+  if (this->url_prefix_.length() == 0 || this->url_prefix_.at(0) != '/')
+    return "/" + this->url_prefix_;
+  return this->url_prefix_;
 }
 
-esp_err_t Box3WebComponent::upload_handler(httpd_req_t *req) {
-  char buffer[1024];
-  int received = httpd_req_recv(req, buffer, sizeof(buffer));
-  if (received <= 0) {
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to receive file");
-    return ESP_FAIL;
-  }
-
-  std::string filepath = this->root_path_ + "/" + req->uri;
-  FILE *f = fopen(filepath.c_str(), "w");
-  if (!f) {
-    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
-    return ESP_FAIL;
-  }
-
-  fwrite(buffer, 1, received, f);
-  fclose(f);
-  httpd_resp_send(req, "File uploaded successfully", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
+std::string Box3Web::extract_path_from_url(std::string const &url) const {
+  std::string prefix = this->build_prefix();
+  return url.substr(prefix.size(), url.size() - prefix.size());
 }
 
-void Box3WebComponent::loop() {
-  // Nothing to do in loop for this component
+std::string Box3Web::build_absolute_path(std::string relative_path) const {
+  if (relative_path.size() == 0)
+    return this->root_path_;
+
+  std::string absolute = Path::join(this->root_path_, relative_path);
+  return absolute;
+}
+
+std::string Path::file_name(std::string const &path) {
+  size_t pos = path.rfind(Path::separator);
+  if (pos != std::string::npos) {
+    return path.substr(pos + 1);
+  }
+  return "";
+}
+
+bool Path::is_absolute(std::string const &path) { return path.size() && path[0] == separator; }
+
+bool Path::trailing_slash(std::string const &path) { return path.size() && path[path.length() - 1] == separator; }
+
+std::string Path::join(std::string const &first, std::string const &second) {
+  std::string result = first;
+  if (!trailing_slash(first) && !is_absolute(second)) {
+    result.push_back(separator);
+  }
+  if (trailing_slash(first) && is_absolute(second)) {
+    result.pop_back();
+  }
+  result.append(second);
+  return result;
+}
+
+std::string Path::remove_root_path(std::string path, std::string const &root) {
+  if (!str_startswith(path, root))
+    return path;
+  if (path.size() == root.size() || path.size() < 2)
+    return "/";
+  return path.erase(0, root.size());
 }
 
 }  // namespace box3web
