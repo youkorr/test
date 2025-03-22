@@ -337,6 +337,7 @@ bool FTPServer::start_passive_mode(int client_socket) {
 
 int FTPServer::open_data_connection(int client_socket) {
   if (passive_data_socket_ == -1) {
+    ESP_LOGE(TAG, "open_data_connection - passive_data_socket_ is -1");
     return -1;
   }
 
@@ -350,6 +351,7 @@ int FTPServer::open_data_connection(int client_socket) {
 
   int ret = select(passive_data_socket_ + 1, &readfds, nullptr, nullptr, &tv);
   if (ret <= 0) {
+    ESP_LOGW(TAG, "open_data_connection - select() timed out or error: %d", ret);
     return -1;
   }
 
@@ -358,11 +360,12 @@ int FTPServer::open_data_connection(int client_socket) {
   int data_socket = accept(passive_data_socket_, (struct sockaddr *)&client_addr, &client_len);
 
   if (data_socket < 0) {
+    ESP_LOGE(TAG, "open_data_connection - accept() failed, errno: %d", errno);
     return -1;
   }
 
   //int flags = fcntl(data_socket, F_GETFL, 0);
-  //fcntl(data_socket, F_SETFL, flags & ~O_NONBLOCK);
+  //fcntl(data_socket, F_SETFL, flags & ~O_NONBLOCK); //NE PAS FAIRE CA!
 
   return data_socket;
 }
@@ -377,65 +380,70 @@ void FTPServer::close_data_connection(int client_socket) {
 }
 
 void FTPServer::list_directory(int client_socket, const std::string& path) {
-  int data_socket = open_data_connection(client_socket);
-  if (data_socket < 0) {
-    send_response(client_socket, 425, "Can't open data connection");
-    return;
-  }
+    int data_socket = open_data_connection(client_socket);
+    if (data_socket < 0) {
+        ESP_LOGE(TAG, "list_directory - Can't open data connection");
+        send_response(client_socket, 425, "Can't open data connection");
+        return;
+    }
 
-  DIR *dir = opendir(path.c_str());
-  if (dir == nullptr) {
-    ESP_LOGE(TAG, "opendir failed with errno: %d", errno);
+    DIR *dir = opendir(path.c_str());
+    if (dir == nullptr) {
+        ESP_LOGE(TAG, "list_directory - opendir failed for path '%s', errno: %d", path.c_str(), errno);
+        close(data_socket);
+        close_data_connection(client_socket);
+        send_response(client_socket, 550, "Failed to open directory");
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        std::string entry_name = entry->d_name;
+        if (entry_name == "." || entry_name == "..") {
+            continue;
+        }
+
+        char full_path[256]; // Adjust size as needed
+        snprintf(full_path, sizeof(full_path), "%s%s", path.c_str(), entry_name.c_str()); // path already includes trailing slash
+        std::string full_path_str(full_path);
+        ESP_LOGD(TAG, "LIST - full_path for stat: %s", full_path_str.c_str());
+
+        struct stat entry_stat;
+        if (stat(full_path_str.c_str(), &entry_stat) == 0) {
+            char time_str[80];
+            strftime(time_str, sizeof(time_str), "%b %d %H:%M", localtime(&entry_stat.st_mtime));
+
+            char perm_str[11] = "----------";
+            if (S_ISDIR(entry_stat.st_mode)) perm_str[0] = 'd';
+            if (entry_stat.st_mode & S_IRUSR) perm_str[1] = 'r';
+            if (entry_stat.st_mode & S_IWUSR) perm_str[2] = 'w';
+            if (entry_stat.st_mode & S_IXUSR) perm_str[3] = 'x';
+            if (entry_stat.st_mode & S_IRGRP) perm_str[4] = 'r';
+            if (entry_stat.st_mode & S_IWGRP) perm_str[5] = 'w';
+            if (entry_stat.st_mode & S_IXGRP) perm_str[6] = 'x';
+            if (entry_stat.st_mode & S_IROTH) perm_str[7] = 'r';
+            if (entry_stat.st_mode & S_IWOTH) perm_str[8] = 'w';
+            if (entry_stat.st_mode & S_IXOTH) perm_str[9] = 'x';
+
+            char list_item[512];
+            snprintf(list_item, sizeof(list_item),
+                     "%s 1 root root %8ld %s %s\r\n",
+                     perm_str, (long) entry_stat.st_size, time_str, entry_name.c_str());
+
+            if (send(data_socket, list_item, strlen(list_item), 0) < 0) {
+                ESP_LOGE(TAG, "list_directory - send() failed, errno: %d", errno);
+                break; // Exit loop on send error
+            }
+        } else {
+            ESP_LOGW(TAG, "list_directory - stat failed for %s with errno: %d", full_path_str.c_str(), errno);
+        }
+    }
+
+    closedir(dir);
     close(data_socket);
     close_data_connection(client_socket);
-    send_response(client_socket, 550, "Failed to open directory");
-    return;
-  }
-
-  struct dirent *entry;
-  while ((entry = readdir(dir)) != nullptr) {
-    std::string entry_name = entry->d_name;
-    if (entry_name == "." || entry_name == "..") {
-      continue;
-    }
-
-    char full_path[256]; // Adjust size as needed
-    snprintf(full_path, sizeof(full_path), "%s%s", path.c_str(), entry_name.c_str()); // path already includes trailing slash
-    std::string full_path_str(full_path);
-    ESP_LOGD(TAG, "LIST - full_path for stat: %s", full_path_str.c_str());
-
-    struct stat entry_stat;
-    if (stat(full_path_str.c_str(), &entry_stat) == 0) {
-      char time_str[80];
-      strftime(time_str, sizeof(time_str), "%b %d %H:%M", localtime(&entry_stat.st_mtime));
-
-      char perm_str[11] = "----------";
-      if (S_ISDIR(entry_stat.st_mode)) perm_str[0] = 'd';
-      if (entry_stat.st_mode & S_IRUSR) perm_str[1] = 'r';
-      if (entry_stat.st_mode & S_IWUSR) perm_str[2] = 'w';
-      if (entry_stat.st_mode & S_IXUSR) perm_str[3] = 'x';
-      if (entry_stat.st_mode & S_IRGRP) perm_str[4] = 'r';
-      if (entry_stat.st_mode & S_IWGRP) perm_str[5] = 'w';
-      if (entry_stat.st_mode & S_IXGRP) perm_str[6] = 'x';
-      if (entry_stat.st_mode & S_IROTH) perm_str[7] = 'r';
-      if (entry_stat.st_mode & S_IWOTH) perm_str[8] = 'w';
-      if (entry_stat.st_mode & S_IXOTH) perm_str[9] = 'x';
-
-      char list_item[512];
-      snprintf(list_item, sizeof(list_item),
-               "%s 1 root root %8ld %s %s\r\n",
-               perm_str, (long)entry_stat.st_size, time_str, entry_name.c_str());
-
-      send(data_socket, list_item, strlen(list_item), 0);
-    } else {
-      ESP_LOGW(TAG, "stat failed for %s with errno: %d", full_path_str.c_str(), errno);
-    }
-  }
-
-  closedir(dir);
-  close(data_socket);
-  close_data_connection(client_socket);
-  send_response(client_socket, 226, "Directory send OK");
+    send_response(client_socket, 226, "Directory send OK");
+    ESP_LOGD(TAG, "list_directory - Directory listing completed");
 }
 
 void FTPServer::start_file_upload(int client_socket, const std::string& path) {
@@ -457,7 +465,10 @@ void FTPServer::start_file_upload(int client_socket, const std::string& path) {
   char buffer[2048];
   int len;
   while ((len = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
-    write(file_fd, buffer, len);
+    if (write(file_fd, buffer, len) != len) {
+       ESP_LOGE(TAG, "start_file_upload - Failed to write to file, errno: %d", errno);
+      break;
+    }
   }
 
   close(file_fd);
@@ -486,7 +497,10 @@ void FTPServer::start_file_download(int client_socket, const std::string& path) 
   char buffer[2048];
   int len;
   while ((len = read(file_fd, buffer, sizeof(buffer))) > 0) { //Utiliser read() ici!
-    send(data_socket, buffer, len, 0);
+     if (send(data_socket, buffer, len, 0) != len) {
+         ESP_LOGE(TAG, "start_file_download - Failed to send data, errno: %d", errno);
+         break;
+     }
   }
 
   close(file_fd);
