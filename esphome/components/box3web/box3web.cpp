@@ -59,12 +59,11 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
 
   if (index == 0) {
     ESP_LOGD(TAG, "uploading file %s to %s", file_name.c_str(), path.c_str());
-    if (!this->sd_mmc_card_->write_file(full_path.c_str(), data, len, true)) { // overwrite = true pour la première écriture
-      request->send(500, "application/json", "{ \"error\": \"failed to create file\" }");
-      return;
-    }
+    // Utiliser "wb" pour écraser le fichier lors du premier bloc
+    this->sd_mmc_card_->write_file(full_path.c_str(), data, len, "wb");
   } else {
-    this->sd_mmc_card_->append_file(full_path.c_str(), data, len);
+    // Utiliser "ab" pour ajouter au fichier lors des blocs suivants
+    this->sd_mmc_card_->write_file(full_path.c_str(), data, len, "ab");
   }
 
   if (final) {
@@ -211,24 +210,17 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     return;
   }
 
-  size_t fileSize = this->sd_mmc_card_->file_size(path);
-
-  AsyncWebServerResponse *response = request->beginResponse(
-    [this, path](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-      return this->sd_mmc_card_->read_file_block(path, buffer, maxLen, index);
-    },
-    fileSize,
-    "application/octet-stream"
-  );
-
-  if (response == nullptr) {
-    request->send(500, "text/plain", "Failed to create response");
+  auto file = this->sd_mmc_card_->read_file(path);
+  if (file.empty()) { // Vérifier si le vecteur est vide
+    request->send(404, "application/json", "{ \"error\": \"failed to read file or file not found\" }");
     return;
   }
 
+  AsyncWebServerResponse *response = request->beginResponse(200, "application/octet-stream", file.data(), file.size());
   response->setContentDisposition("attachment; filename=\"" + Path::file_name(path).c_str() + "\"");
   request->send(response);
 }
+
 
 void Box3Web::handle_delete(AsyncWebServerRequest *request) {
   if (!this->deletion_enabled_) {
@@ -301,6 +293,7 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
 
 }  // namespace box3web
 }  // namespace esphome
+
 
 
 
