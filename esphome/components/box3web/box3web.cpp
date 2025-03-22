@@ -2,7 +2,6 @@
 #include "esphome/core/log.h"
 #include "esphome/components/network/util.h"
 #include "esphome/core/helpers.h"
-#include "SD_MMC.h"
 
 namespace esphome {
 namespace box3web {
