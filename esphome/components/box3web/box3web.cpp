@@ -6,7 +6,7 @@
 namespace esphome {
 namespace box3web {
 
-static const char *TAG = "";
+static const char *TAG = "Box3Web";
 
 Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
 
@@ -57,10 +57,15 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
   std::string file_name(filename.c_str());
   if (index == 0) {
     ESP_LOGD(TAG, "uploading file %s to %s", file_name.c_str(), path.c_str());
-    this->sd_mmc_card_->write_file(Path::join(path, file_name).c_str(), data, len);
+    if (!this->sd_mmc_card_->create_file(Path::join(path, file_name).c_str())) {
+      request->send(500, "application/json", "{ \"error\": \"failed to create file\" }");
+      return;
+    }
+  }
+  if (!this->sd_mmc_card_->append_file(Path::join(path, file_name).c_str(), data, len)) {
+    request->send(500, "application/json", "{ \"error\": \"failed to append to file\" }");
     return;
   }
-  this->sd_mmc_card_->append_file(Path::join(path, file_name).c_str(), data, len);
   if (final) {
     auto response = request->beginResponse(201, "text/html", "upload success");
     response->addHeader("Connection", "close");
@@ -205,17 +210,16 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     return;
   }
 
-  auto file = this->sd_mmc_card_->read_file(path);
-  if (file.size() == 0) {
-    request->send(401, "application/json", "{ \"error\": \"failed to read file\" }");
+  if (!this->sd_mmc_card_->exists(path)) {
+    request->send(404, "application/json", "{ \"error\": \"file not found\" }");
     return;
   }
-#ifdef USE_ESP_IDF
-  auto *response = request->beginResponse_P(200, "application/octet", file.data(), file.size());
-#else
-  auto *response = request->beginResponseStream("application/octet", file.size());
-  response->write(file.data(), file.size());
-#endif
+
+  AsyncWebServerResponse *response = request->beginResponse(
+      [this, path](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+        return this->sd_mmc_card_->read_file_block(path, buffer, maxLen, index);
+      },
+      this->sd_mmc_card_->file_size(path), "application/octet-stream");
 
   request->send(response);
 }
