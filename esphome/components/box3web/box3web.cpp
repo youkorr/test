@@ -5,9 +5,6 @@
 
 #ifdef USE_ESP_IDF
 #include <ESPAsyncWebServer.h>
-#else
-#include <FS.h>
-#include <ESP8266WebServer.h>
 #endif
 
 namespace esphome {
@@ -62,9 +59,9 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
     return;
   }
   std::string file_name(filename.c_str());
-  std::string full_path = Path::join(path, file_name);
+    std::string full_path = Path::join(path, file_name);
   const char* mode = index == 0 ? "wb" : "ab";
-  this->sd_mmc_card_->write_file(full_path.c_str(), data, len, mode);
+    this->sd_mmc_card_->write_file(full_path.c_str(), data, len, mode);
 
   if (final) {
     auto response = request->beginResponse(201, "text/html", "upload success");
@@ -215,20 +212,9 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     request->send(401, "application/json", "{ \"error\": \"failed to read file\" }");
     return;
   }
-
-  // Déterminer si ESP_IDF est utilisé
-#ifdef USE_ESP_IDF
-  AsyncWebServerResponse *response = request->beginResponse_P(200, "application/octet-stream", (const char*)file.data(), file.size());
-  response->setContentDisposition("attachment; filename=\"" + Path::file_name(path).c_str() + "\"");
+    AsyncWebServerResponse *response = request->beginResponse(200, "application/octet-stream", file.data(), file.size());
   request->send(response);
-#else
-  // Gestion pour ESP8266 (si nécessaire, adaptez)
-  auto *response = request->beginResponseStream("application/octet-stream");
-  response->write((const uint8_t*)file.data(), file.size());
-  request->send(response);
-#endif
 }
-
 
 void Box3Web::handle_delete(AsyncWebServerRequest *request) {
   if (!this->deletion_enabled_) {
@@ -301,6 +287,7 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
 
 }  // namespace box3web
 }  // namespace esphome
+
 
 
 
