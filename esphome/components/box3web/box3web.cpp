@@ -17,19 +17,16 @@ void Box3Web::dump_config() {
   ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), this->base_->get_port());
   ESP_LOGCONFIG(TAG, "  Url Prefix: %s", this->url_prefix_.c_str());
   ESP_LOGCONFIG(TAG, "  Root Path: %s", this->root_path_.c_str());
-  ESP_LOGCONFIG(TAG, "  Deletation Enabled: %s", TRUEFALSE(this->deletion_enabled_));
+  ESP_LOGCONFIG(TAG, "  Deletion Enabled: %s", TRUEFALSE(this->deletion_enabled_));
   ESP_LOGCONFIG(TAG, "  Download Enabled : %s", TRUEFALSE(this->download_enabled_));
   ESP_LOGCONFIG(TAG, "  Upload Enabled : %s", TRUEFALSE(this->upload_enabled_));
 }
 
 bool Box3Web::canHandle(AsyncWebServerRequest *request) {
-  ESP_LOGD(TAG, "can handle %s %u", request->url().c_str(),
-           str_startswith(std::string(request->url().c_str()), this->build_prefix()));
   return str_startswith(std::string(request->url().c_str()), this->build_prefix());
 }
 
 void Box3Web::handleRequest(AsyncWebServerRequest *request) {
-  ESP_LOGD(TAG, "%s", request->url().c_str());
   if (str_startswith(std::string(request->url().c_str()), this->build_prefix())) {
     if (request->method() == HTTP_GET) {
       this->handle_get(request);
@@ -43,7 +40,7 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
 }
 
 void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
-                                size_t len, bool final) {
+                           size_t len, bool final) {
   if (!this->upload_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
     return;
@@ -96,19 +93,56 @@ void Box3Web::handle_get(AsyncWebServerRequest *request) const {
   handle_index(request, path);
 }
 
+std::string Box3Web::get_file_type(const std::string &file_name) const {
+  size_t pos = file_name.rfind('.');
+  if (pos == std::string::npos)
+    return "Unknown";
+
+  std::string ext = file_name.substr(pos + 1);
+  if (ext == "flac" || ext == "mp3" || ext == "wav") {
+    return "Audio";
+  } else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "gif") {
+    return "Image";
+  } else if (ext == "pdf" || ext == "docx" || ext == "txt") {
+    return "Document";
+  } else if (ext == "yaml" || ext == "json") {
+    return "Configuration";
+  } else {
+    return "Other";
+  }
+}
+
+std::string Box3Web::format_size(uint64_t size) const {
+  if (size < 1024)
+    return std::to_string(size) + " B";
+  else if (size < 1024 * 1024)
+    return std::to_string(size / 1024) + " KB";
+  else if (size < 1024 * 1024 * 1024)
+    return std::to_string(size / (1024 * 1024)) + " MB";
+  else
+    return std::to_string(size / (1024 * 1024 * 1024)) + " GB";
+}
+
 void Box3Web::write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const {
   std::string uri = "/" + Path::join(this->url_prefix_, Path::remove_root_path(info.path, this->root_path_));
   std::string file_name = Path::file_name(info.path);
+  std::string file_type = get_file_type(file_name);
+  uint64_t file_size = info.size;
+
   response->print("<tr><td>");
   if (info.is_directory) {
-    response->print("<a href=\"");
+    response->print("<button onClick=\"navigate_to('");
     response->print(uri.c_str());
-    response->print("\">");
+    response->print("')\">");
     response->print(file_name.c_str());
-    response->print("</a>");
+    response->print("</button>");
   } else {
     response->print(file_name.c_str());
   }
+  response->print("</td><td>");
+  response->print(file_type.c_str());
+  response->print("</td><td>");
+  response->print(format_size(file_size).c_str());
   response->print("</td><td>");
   if (!info.is_directory) {
     if (this->download_enabled_) {
@@ -141,13 +175,14 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
                       "<input type=\"file\" name=\"file\"><input type=\"submit\" value=\"upload\"></form>"));
   response->print(F("<a href=\"/"));
   response->print(this->url_prefix_.c_str());
-  response->print(F("\">Home</a></br></br><table id=\"files\"><thead><tr><th>Name<th>Actions<tbody>"));
+  response->print(F("\">Home</a></br></br><table id=\"files\"><thead><tr><th>Name<th>Type<th>Size<th>Actions<tbody>"));
   auto entries = this->sd_mmc_card_->list_directory_file_info(path, 0);
   for (auto const &entry : entries)
     write_row(response, entry);
 
   response->print(F("</tbody></table>"
                     "<script>"
+                    "function navigate_to(path) { window.location.href = path; }"
                     "function delete_file(path) {fetch(path, {method: \"DELETE\"});}"
                     "function download_file(path, filename) {"
                     "fetch(path).then(response => response.blob())"
