@@ -4,7 +4,6 @@ from esphome.const import CONF_ID
 from esphome.components import sd_mmc_card
 
 DEPENDENCIES = ['esp32']
-AUTO_LOAD = ['async_tcp']
 
 samba_ns = cg.esphome_ns.namespace('samba_server')
 SambaServer = samba_ns.class_('SambaServer', cg.Component)
@@ -38,6 +37,7 @@ async def to_code(config):
     
     sd_card = await cg.get_variable(config[CONF_SD_MMC_CARD])
     cg.add(var.set_sd_mmc_card(sd_card))
+
 
 
 
