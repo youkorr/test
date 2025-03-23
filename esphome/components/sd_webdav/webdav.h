@@ -5,35 +5,32 @@
 #include "../sd_mmc_card/sd_mmc_card.h"
 
 namespace esphome {
-namespace webdav {
+namespace sd_webdav {
 
-class WebDAVComponent : public esphome::Component, public esphome::web_server_base::WebServerHandler {
+class SDWebDAVComponent : public Component {
  public:
   void setup() override;
-  bool canHandle(AsyncWebServerRequest *request) override;
-  void handleRequest(AsyncWebServerRequest *request) override;
-
-  void set_sd_card(esphome::sd_mmc_card::SDMMCCard *sd_card) { this->sd_card_ = sd_card; }
-  void set_mount_point(const std::string &mount_point) { this->mount_point_ = mount_point; }
-  void set_username(const std::string &username) { this->username_ = username; }
-  void set_password(const std::string &password) { this->password_ = password; }
+  void loop() override;
+  void dump_config() override;
+  
+  void set_sd_card(sd_mmc_card::SDMMCCard *sd_card) { sd_card_ = sd_card; }
+  void set_mount_point(const std::string &mount_point) { mount_point_ = mount_point; }
+  void set_credentials(const std::string &username, const std::string &password) {
+    username_ = username;
+    password_ = password;
+  }
 
  protected:
-  esphome::sd_mmc_card::SDMMCCard *sd_card_{nullptr};
+  sd_mmc_card::SDMMCCard *sd_card_;
   std::string mount_point_;
   std::string username_;
   std::string password_;
-
-  bool authenticate(AsyncWebServerRequest *request);
-  void handlePropfind(AsyncWebServerRequest *request);
-  void handleGet(AsyncWebServerRequest *request);
-  void handlePut(AsyncWebServerRequest *request);
-  void handleDelete(AsyncWebServerRequest *request);
-  void handleMkcol(AsyncWebServerRequest *request);
+  web_server_base::WebServerBase *web_server_;
 };
 
-}  // namespace webdav
+}  // namespace sd_webdav
 }  // namespace esphome
+
 
 
 
