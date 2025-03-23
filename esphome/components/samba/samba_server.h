@@ -5,6 +5,7 @@
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
+#include "driver/sdmmc_types.h"
 #include "esp_http_server.h"
 #include <string>
 #include "../sd_mmc_card/sd_mmc_card.h"
@@ -22,7 +23,7 @@ class SambaServer : public Component {
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
   void set_root_path(const std::string &root_path) { root_path_ = root_path; }
-  void set_sd_mmc_card(sd_mmc_card::SdMmc *card) { sd_mmc_card_ = card; }
+  void set_sd_mmc_card(sdmmc_card_t *card) { sd_card_ = card; }
 
  protected:
   std::string workgroup_{"WORKGROUP"};
