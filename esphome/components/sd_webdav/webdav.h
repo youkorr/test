@@ -26,9 +26,6 @@ class SDWebDAVComponent : public Component {
   std::string username_;
   std::string password_;
   web_server_base::WebServerBase *web_server_;
-  
-  void handle_webdav_request();
-  bool authenticate();
 };
 
 }  // namespace sd_webdav
