@@ -1,34 +1,23 @@
-import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import web_server_base
-from esphome.const import CONF_ID, CONF_USERNAME, CONF_PASSWORD
+from esphome.components import sdcard
+from esphome.const import CONF_ID, CONF_MOUNT_POINT, CONF_USERNAME, CONF_PASSWORD, CONF_SD_CARD
+from esphome.core import HexInt
+from esphome.cpp_generator import Pvariable, get_variable
+from esphome.cpp_types import App
 
-DEPENDENCIES = ['web_server_base']
-AUTO_LOAD = ['web_server_base']
-
-CONF_SD_CARD_ID = 'sd_card_id'
-CONF_MOUNT_POINT = 'mount_point'
-
-sd_webdav_ns = cg.esphome_ns.namespace('sd_webdav')
-SDWebDAVComponent = sd_webdav_ns.class_('SDWebDAVComponent', cg.Component)
+DEPENDENCIES = ['network', 'sdcard']
 
 CONFIG_SCHEMA = cv.Schema({
-    cv.GenerateID(): cv.declare_id(SDWebDAVComponent),
-    cv.Required(CONF_SD_CARD_ID): cv.use_id(cg.esphome_ns.SDMMCCard),
-    cv.Required(CONF_MOUNT_POINT): cv.string,
-    cv.Optional(CONF_USERNAME, default=''): cv.string,
-    cv.Optional(CONF_PASSWORD, default=''): cv.string,
+    cv.GenerateID(): cv.declare_id(webdav::WebDAV),
+    cv.Required(CONF_SD_CARD): cv.use_id(sdcard.SDCardComponent),
+    cv.Required(CONF_MOUNT_POINT): cv.string_strict,
+    cv.Optional(CONF_USERNAME, default=""): cv.string_strict,
+    cv.Optional(CONF_PASSWORD, default=""): cv.string_strict,
 }).extend(cv.COMPONENT_SCHEMA)
 
 def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
-    yield cg.register_component(var, config)
-    
-    sd_card = yield cg.get_variable(config[CONF_SD_CARD_ID])
-    cg.add(var.set_sd_card(sd_card))
-    cg.add(var.set_mount_point(config[CONF_MOUNT_POINT]))
-    cg.add(var.set_credentials(
-        config[CONF_USERNAME],
-        config[CONF_PASSWORD]
-    ))
+    sd_card = yield get_variable(config[CONF_SD_CARD])
+    rhs = webdav::WebDAV::create(sd_card, config[CONF_MOUNT_POINT], config[CONF_USERNAME], config[CONF_PASSWORD])
+    webdav = Pvariable(config[CONF_ID], rhs)
+    yield
 
