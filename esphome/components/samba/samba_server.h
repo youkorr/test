@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esphome/core/component.h"
 #include "esp_err.h"
 #include "esp_vfs.h"
 #include "esp_vfs_fat.h"
@@ -8,6 +9,8 @@
 #include "driver/sdmmc_types.h"
 #include "esp_http_server.h"
 #include <string>
+
+// Assurez-vous que ce chemin est correct
 #include "../sd_mmc_card/sd_mmc_card.h"
 
 namespace esphome {
@@ -25,7 +28,7 @@ class SambaServer : public Component {
   void set_root_path(const std::string &root_path) { root_path_ = root_path; }
   void set_sd_mmc_card(sdmmc_card_t *card) { sd_card_ = card; }
 
- protected:
+ private:
   std::string workgroup_{"WORKGROUP"};
   std::string share_name_{"ESP32"};
   std::string username_{"esp32"};
@@ -36,10 +39,12 @@ class SambaServer : public Component {
   httpd_handle_t server_{nullptr};
 
   esp_err_t start_http_server();
+  bool initialize_sd_card();
 };
 
 }  // namespace samba_server
 }  // namespace esphome
+
 
 
 
