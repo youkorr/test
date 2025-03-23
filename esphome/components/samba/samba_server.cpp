@@ -1,48 +1,28 @@
-#include "web_server.h"
+#include "samba_server.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
 namespace samba_server {
 
-static const char *TAG = "samba_web_server";
+static const char *TAG = "samba_server";
 
-void WebServer::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up Web Server...");
+void SambaServer::setup() {
+  ESP_LOGCONFIG(TAG, "Setting up Samba Server...");
   
-  server_.on("/list", HTTP_GET, std::bind(&WebServer::handle_list_directory, this, std::placeholders::_1));
-  server_.on("/download", HTTP_GET, std::bind(&WebServer::handle_download_file, this, std::placeholders::_1));
-  server_.on("/upload", HTTP_POST, std::bind(&WebServer::handle_upload_file, this, std::placeholders::_1));
-  server_.on("/delete", HTTP_POST, std::bind(&WebServer::handle_delete_file, this, std::placeholders::_1));
-  server_.on("/rename", HTTP_POST, std::bind(&WebServer::handle_rename_file, this, std::placeholders::_1));
+  web_server_ = std::make_unique<WebServer>();
+  web_server_->setup();
   
-  server_.begin();
+  // TODO: Implement SMB protocol
 }
 
-void WebServer::loop() {
-  // The AsyncWebServer doesn't need a loop method
-}
-
-void WebServer::handle_list_directory(AsyncWebServerRequest *request) {
-  // TODO: Implement directory listing
-}
-
-void WebServer::handle_download_file(AsyncWebServerRequest *request) {
-  // TODO: Implement file download
-}
-
-void WebServer::handle_upload_file(AsyncWebServerRequest *request) {
-  // TODO: Implement file upload
-}
-
-void WebServer::handle_delete_file(AsyncWebServerRequest *request) {
-  // TODO: Implement file/directory deletion
-}
-
-void WebServer::handle_rename_file(AsyncWebServerRequest *request) {
-  // TODO: Implement file/directory renaming
+void SambaServer::loop() {
+  web_server_->loop();
+  
+  // TODO: Handle SMB connections
 }
 
 }  // namespace samba_server
 }  // namespace esphome
+
 
 
