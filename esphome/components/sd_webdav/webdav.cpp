@@ -13,11 +13,6 @@ void SDWebDAVComponent::setup() {
   // Initialize WebDAV server
   web_server_->init();
   
-  // Set up authentication if credentials provided
-  if (!username_.empty() && !password_.empty()) {
-    web_server_->set_authentication(username_.c_str(), password_.c_str());
-  }
-  
   // Initialize SD card
   sd_card_->setup();
   if (!sd_card_->is_ready()) {
@@ -41,8 +36,6 @@ void SDWebDAVComponent::loop() {
 void SDWebDAVComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "WebDAV Server:");
   ESP_LOGCONFIG(TAG, "  Mount Point: %s", mount_point_.c_str());
-  ESP_LOGCONFIG(TAG, "  Username: %s", username_.c_str());
-  ESP_LOGCONFIG(TAG, "  Password: %s", password_.empty() ? "not set" : "set");
 }
 
 }  // namespace sd_webdav
