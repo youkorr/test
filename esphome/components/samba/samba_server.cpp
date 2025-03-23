@@ -18,7 +18,7 @@ SambaServer::SambaServer(web_server_base::WebServerBase *base) : base_(base) {}
 
 void SambaServer::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Samba Server...");
-  this->base_->add_handler(this); // Enregistre le handler
+  this->base_->add_handler(this);
   this->init_samba_server();
 }
 
@@ -36,7 +36,7 @@ bool SambaServer::canHandle(web_server_idf::AsyncWebServerRequest *request) {
 
 void SambaServer::handleRequest(web_server_idf::AsyncWebServerRequest *request) {
   auto path = request->url();
-  
+
   if (path == "/samba/status") {
     this->handle_status(request);
   } else if (path == "/samba/start" && request->method() == HTTP_POST) {
@@ -50,7 +50,7 @@ void SambaServer::handleRequest(web_server_idf::AsyncWebServerRequest *request) 
   }
 }
 
-// Définition des méthodes manquantes
+// Définition des méthodes
 void SambaServer::handle_status(web_server_idf::AsyncWebServerRequest *request) {
   auto response = request->beginResponseStream("application/json");
   response->printf("{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}",
@@ -65,7 +65,7 @@ void SambaServer::handle_start(web_server_idf::AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"status\": \"already_running\"}");
     return;
   }
-  
+
   if (this->start_samba_server()) {
     request->send(200, "application/json", "{\"status\": \"started\"}");
   } else {
@@ -78,7 +78,7 @@ void SambaServer::handle_stop(web_server_idf::AsyncWebServerRequest *request) {
     request->send(200, "application/json", "{\"status\": \"not_running\"}");
     return;
   }
-  
+
   if (this->stop_samba_server()) {
     request->send(200, "application/json", "{\"status\": \"stopped\"}");
   } else {
@@ -113,21 +113,13 @@ void SambaServer::handle_ui(web_server_idf::AsyncWebServerRequest *request) {
     </script>
     </body></html>
   )HTML";
-  
+
   request->send(200, "text/html", html);
 }
 
-void SambaServer::set_share_name(const std::string &name) { 
-  this->share_name_ = name; 
-}
-
-void SambaServer::set_root_path(const std::string &path) { 
-  this->root_path_ = path; 
-}
-
-void SambaServer::set_sd_mmc_card(sd_mmc_card::SdMmc *card) { 
-  this->sd_mmc_card_ = card; 
-}
+void SambaServer::set_share_name(const std::string &name) { this->share_name_ = name; }
+void SambaServer::set_root_path(const std::string &path) { this->root_path_ = path; }
+void SambaServer::set_sd_mmc_card(sd_mmc_card::SdMmc *card) { this->sd_mmc_card_ = card; }
 
 void SambaServer::init_samba_server() {
   netbiosns_init();
@@ -140,18 +132,18 @@ bool SambaServer::start_samba_server() {
     ESP_LOGW(TAG, "Already running");
     return true;
   }
-  
+
   if (xTaskCreate(
-    SambaServer::samba_server_task,
-    "samba_server",
-    8192,
-    this,
-    5,
-    &samba_task_handle) != pdPASS) {
+      SambaServer::samba_server_task,
+      "samba_server",
+      8192,
+      this,
+      5,
+      &samba_task_handle) != pdPASS) {
     ESP_LOGE(TAG, "Failed to create task");
     return false;
   }
-  
+
   this->is_running_ = true;
   return true;
 }
@@ -161,12 +153,12 @@ bool SambaServer::stop_samba_server() {
     ESP_LOGW(TAG, "Not running");
     return true;
   }
-  
+
   if (samba_task_handle) {
     vTaskDelete(samba_task_handle);
     samba_task_handle = NULL;
   }
-  
+
   this->is_running_ = false;
   return true;
 }
@@ -174,7 +166,7 @@ bool SambaServer::stop_samba_server() {
 void SambaServer::samba_server_task(void *pvParameters) {
   SambaServer *server = static_cast<SambaServer *>(pvParameters);
   ESP_LOGI(TAG, "Samba server task started");
-  
+
   while (true) {
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
