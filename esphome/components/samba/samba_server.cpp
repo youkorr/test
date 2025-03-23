@@ -19,11 +19,7 @@ SambaServer::SambaServer(web_server_base::WebServerBase *base) : base_(base) {}
 void SambaServer::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Samba Server...");
   this->base_->add_handler(static_cast<web_server_idf::AsyncWebHandler*>(this));
-  
-  // Register the web interface handler
   this->register_web_handlers();
-  
-  // Initialize but don't start the server yet
   this->init_samba_server();
 }
 
@@ -37,64 +33,131 @@ void SambaServer::dump_config() {
 
 void SambaServer::register_web_handlers() {
   auto server = this->base_->get_server();
-  
-  // Register the control interface URLs using the correct namespace
-  server->on("/samba/status", web_server_idf::HTTP_GET, 
-    [this](web_server_idf::AsyncWebServerRequest *request) {
-      web_server_idf::AsyncResponseStream *response = request->beginResponseStream("application/json");
-      response->printf("{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}", 
-                      this->is_running_ ? "true" : "false", 
-                      this->share_name_.c_str(), 
-                      this->root_path_.c_str());
-      request->send(response);
-    });
 
-  server->on("/samba/start", web_server_idf::HTTP_POST, 
-    [this](web_server_idf::AsyncWebServerRequest *request) {
-      if (!this->is_running_) {
-        if (this->start_samba_server()) {
-          request->send(200, "application/json", "{\"status\": \"started\"}");
-        } else {
-          request->send(500, "application/json", "{\"error\": \"Failed to start Samba server\"}");
-        }
-      } else {
-        request->send(200, "application/json", "{\"status\": \"already_running\"}");
-      }
-    });
+  // Définition des handlers pour chaque endpoint
+  httpd_uri_t status_uri = {
+    .uri       = "/samba/status",
+    .method    = HTTP_GET,
+    .handler   = status_handler,
+    .user_ctx  = this
+  };
+  httpd_register_uri_handler(server->get_httpd(), &status_uri);
 
-  server->on("/samba/stop", web_server_idf::HTTP_POST, 
-    [this](web_server_idf::AsyncWebServerRequest *request) {
-      if (this->is_running_) {
-        if (this->stop_samba_server()) {
-          request->send(200, "application/json", "{\"status\": \"stopped\"}");
-        } else {
-          request->send(500, "application/json", "{\"error\": \"Failed to stop Samba server\"}");
-        }
-      } else {
-        request->send(200, "application/json", "{\"status\": \"not_running\"}");
-      }
-    });
-    
-  // Add UI handler
-  server->on("/samba", web_server_idf::HTTP_GET, 
-    [this](web_server_idf::AsyncWebServerRequest *request) {
-      this->handle_ui(request);
-    });
+  httpd_uri_t start_uri = {
+    .uri       = "/samba/start",
+    .method    = HTTP_POST,
+    .handler   = start_handler,
+    .user_ctx  = this
+  };
+  httpd_register_uri_handler(server->get_httpd(), &start_uri);
+
+  httpd_uri_t stop_uri = {
+    .uri       = "/samba/stop",
+    .method    = HTTP_POST,
+    .handler   = stop_handler,
+    .user_ctx  = this
+  };
+  httpd_register_uri_handler(server->get_httpd(), &stop_uri);
+
+  httpd_uri_t samba_uri = {
+    .uri       = "/samba",
+    .method    = HTTP_GET,
+    .handler   = samba_ui_handler,
+    .user_ctx  = this
+  };
+  httpd_register_uri_handler(server->get_httpd(), &samba_uri);
+}
+
+// Handler pour "/samba/status"
+esp_err_t status_handler(httpd_req_t *req) {
+  SambaServer *server = (SambaServer*) req->user_ctx;
+  char buffer[256];
+  snprintf(buffer, sizeof(buffer), "{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}",
+           server->is_running_ ? "true" : "false",
+           server->share_name_.c_str(),
+           server->root_path_.c_str());
+  httpd_resp_send(req, buffer, HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// Handler pour "/samba/start"
+esp_err_t start_handler(httpd_req_t *req) {
+  SambaServer *server = (SambaServer*) req->user_ctx;
+  if (server->is_running_) {
+    httpd_resp_send(req, "{\"status\": \"already_running\"}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+  }
+  if (server->start_samba_server()) {
+    httpd_resp_send(req, "{\"status\": \"started\"}", HTTPD_RESP_USE_STRLEN);
+  } else {
+    httpd_resp_send_err(req, HTTP_INTERNAL_SERVER_ERROR, "Failed to start Samba server");
+  }
+  return ESP_OK;
+}
+
+// Handler pour "/samba/stop"
+esp_err_t stop_handler(httpd_req_t *req) {
+  SambaServer *server = (SambaServer*) req->user_ctx;
+  if (!server->is_running_) {
+    httpd_resp_send(req, "{\"status\": \"not_running\"}", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+  }
+  if (server->stop_samba_server()) {
+    httpd_resp_send(req, "{\"status\": \"stopped\"}", HTTPD_RESP_USE_STR_LEN);
+  } else {
+    httpd_resp_send_err(req, HTTP_INTERNAL_SERVER_ERROR, "Failed to stop Samba server");
+  }
+  return ESP_OK;
+}
+
+// Handler pour l'interface utilisateur
+esp_err_t samba_ui_handler(httpd_req_t *req) {
+  SambaServer *server = (SambaServer*) req->user_ctx;
+  const char *html = R"HTML(
+    <!DOCTYPE html><html lang="en">
+    <head><meta charset=UTF-8>
+    <meta name=viewport content="width=device-width, initial-scale=1,user-scalable=no">
+    <title>Samba Server Control</title></head>
+    <body><h1>Samba Server Control</h1>
+    <div id="status">Checking status...</div>
+    <button id="startBtn" onclick="startServer()">Start Server</button>
+    <button id="stopBtn" onclick="stopServer()">Stop Server</button>
+    <script>
+    function updateStatus() {
+      fetch('/samba/status').then(r => r.json()).then(data => {
+        document.getElementById('status').innerHTML = 
+          'Status: ' + (data.running ? 'Running' : 'Stopped') + 
+          '<br>Share Name: ' + data.share_name + 
+          '<br>Root Path: ' + data.root_path;
+        document.getElementById('startBtn').disabled = data.running;
+        document.getElementById('stopBtn').disabled = !data.running;
+      });
+    }
+    function startServer() { fetch('/samba/start', {method: 'POST'}).then(updateStatus); }
+    function stopServer() { fetch('/samba/stop', {method: 'POST'}).then(updateStatus); }
+    updateStatus(); setInterval(updateStatus, 5000);
+    </script>
+    </body></html>
+  )HTML";
+
+  httpd_resp_set_type(req, "text/html");
+  httpd_resp_send(req, html, strlen(html));
+  return ESP_OK;
 }
 
 bool SambaServer::canHandle(web_server_idf::AsyncWebServerRequest *request) {
-  return str_startswith(std::string(request->url().c_str()), "/samba");
+  return str_startswith(request->url().c_str(), "/samba");
 }
 
 void SambaServer::handleRequest(web_server_idf::AsyncWebServerRequest *request) {
-  // The actual handling is done by the registered handlers
+  // Les handlers sont gérés via httpd_uri_t, donc cette méthode reste vide
 }
 
-void SambaServer::set_share_name(std::string const &name) { 
+void SambaServer::set_share_name(const std::string &name) { 
   this->share_name_ = name; 
 }
 
-void SambaServer::set_root_path(std::string const &path) { 
+void SambaServer::set_root_path(const std::string &path) { 
   this->root_path_ = path; 
 }
 
@@ -103,11 +166,8 @@ void SambaServer::set_sd_mmc_card(sd_mmc_card::SdMmc *card) {
 }
 
 void SambaServer::init_samba_server() {
-  // Initialize the NetBIOS name service for Windows network discovery
   netbiosns_init();
   netbiosns_set_name(this->share_name_.c_str());
-  
-  // Set up initial configuration but don't start the task yet
   ESP_LOGI(TAG, "Samba server initialized (not running)");
 }
 
@@ -117,24 +177,19 @@ bool SambaServer::start_samba_server() {
     return true;
   }
 
-  // Create the Samba server task
-  BaseType_t xReturned = xTaskCreate(
+  if (xTaskCreate(
     SambaServer::samba_server_task,
     "samba_server",
-    8192,  // Stack size
-    this,  // Pass this instance as parameter
-    5,     // Priority
-    &samba_task_handle
-  );
-
-  if (xReturned != pdPASS) {
+    8192,
+    this,
+    5,
+    &samba_task_handle) != pdPASS) {
     ESP_LOGE(TAG, "Failed to create Samba server task");
     return false;
   }
 
   this->is_running_ = true;
-  ESP_LOGI(TAG, "Samba server started. Share name: %s, Root path: %s", 
-           this->share_name_.c_str(), this->root_path_.c_str());
+  ESP_LOGI(TAG, "Samba server started");
   return true;
 }
 
@@ -154,73 +209,13 @@ bool SambaServer::stop_samba_server() {
   return true;
 }
 
-// Static task function that will be run by FreeRTOS
 void SambaServer::samba_server_task(void *pvParameters) {
   SambaServer *server = static_cast<SambaServer *>(pvParameters);
-  
   ESP_LOGI(TAG, "Samba server task started");
 
-  // Basic SMB/CIFS implementation
-  // Note: This is a simplified example. A full Samba implementation would require
-  // more complex handling of SMB protocols, authentication, etc.
-  
-  // Main server loop
   while (true) {
-    // Your actual Samba protocol implementation would go here
-    // For ESP-IDF, you might use a lightweight SMB implementation
-    
-    // For the purpose of this example, we'll just keep the task alive
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
-}
-
-// HTML UI for Samba controls
-void SambaServer::handle_ui(web_server_idf::AsyncWebServerRequest *request) {
-  web_server_idf::AsyncResponseStream *response = request->beginResponseStream("text/html");
-  
-  response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8>"
-                    "<meta name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
-                    "<title>Samba Server Control</title></head><body>"
-                    "<h1>Samba Server Control</h1>"));
-  
-  response->print(F("<div id=\"status\">Checking status...</div>"));
-  
-  response->print(F("<button id=\"startBtn\" onclick=\"startServer()\">Start Server</button>"));
-  response->print(F("<button id=\"stopBtn\" onclick=\"stopServer()\">Stop Server</button>"));
-  
-  response->print(F("<script>"
-                    "function updateStatus() {"
-                    "  fetch('/samba/status').then(response => response.json())"
-                    "  .then(data => {"
-                    "    document.getElementById('status').innerHTML = "
-                    "      'Status: ' + (data.running ? 'Running' : 'Stopped') + "
-                    "      '<br>Share Name: ' + data.share_name + "
-                    "      '<br>Root Path: ' + data.root_path;"
-                    "    document.getElementById('startBtn').disabled = data.running;"
-                    "    document.getElementById('stopBtn').disabled = !data.running;"
-                    "  });"
-                    "}"
-                    
-                    "function startServer() {"
-                    "  fetch('/samba/start', {method: 'POST'})"
-                    "  .then(response => response.json())"
-                    "  .then(data => { updateStatus(); });"
-                    "}"
-                    
-                    "function stopServer() {"
-                    "  fetch('/samba/stop', {method: 'POST'})"
-                    "  .then(response => response.json())"
-                    "  .then(data => { updateStatus(); });"
-                    "}"
-                    
-                    "// Initial status check"
-                    "updateStatus();"
-                    "// Refresh status every 5 seconds"
-                    "setInterval(updateStatus, 5000);"
-                    "</script>"
-                    "</body></html>"));
-
-  request->send(response);
 }
 
 } // namespace samba
