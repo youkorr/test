@@ -18,7 +18,7 @@ SambaServer::SambaServer(web_server_base::WebServerBase *base) : base_(base) {}
 
 void SambaServer::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Samba Server...");
-  this->base_->add_handler(this);
+  this->base_->add_handler(static_cast<web_server_idf::AsyncWebHandler*>(this));
   
   // Register the web interface handler
   this->register_web_handlers();
@@ -36,46 +36,57 @@ void SambaServer::dump_config() {
 }
 
 void SambaServer::register_web_handlers() {
-  // Register the control interface URLs
-  this->base_->get_server()->on("/samba/status", HTTP_GET, [this](AsyncWebServerRequest *request) {
-    AsyncResponseStream *response = request->beginResponseStream("application/json");
-    response->printf("{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}", 
-                    this->is_running_ ? "true" : "false", 
-                    this->share_name_.c_str(), 
-                    this->root_path_.c_str());
-    request->send(response);
-  });
+  auto *server = this->base_->get_server();
+  
+  // Register the control interface URLs using the correct namespace
+  server->on("/samba/status", web_server_idf::HTTP_GET, 
+    [this](web_server_idf::AsyncWebServerRequest *request) {
+      web_server_idf::AsyncResponseStream *response = request->beginResponseStream("application/json");
+      response->printf("{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}", 
+                      this->is_running_ ? "true" : "false", 
+                      this->share_name_.c_str(), 
+                      this->root_path_.c_str());
+      request->send(response);
+    });
 
-  this->base_->get_server()->on("/samba/start", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    if (!this->is_running_) {
-      if (this->start_samba_server()) {
-        request->send(200, "application/json", "{\"status\": \"started\"}");
+  server->on("/samba/start", web_server_idf::HTTP_POST, 
+    [this](web_server_idf::AsyncWebServerRequest *request) {
+      if (!this->is_running_) {
+        if (this->start_samba_server()) {
+          request->send(200, "application/json", "{\"status\": \"started\"}");
+        } else {
+          request->send(500, "application/json", "{\"error\": \"Failed to start Samba server\"}");
+        }
       } else {
-        request->send(500, "application/json", "{\"error\": \"Failed to start Samba server\"}");
+        request->send(200, "application/json", "{\"status\": \"already_running\"}");
       }
-    } else {
-      request->send(200, "application/json", "{\"status\": \"already_running\"}");
-    }
-  });
+    });
 
-  this->base_->get_server()->on("/samba/stop", HTTP_POST, [this](AsyncWebServerRequest *request) {
-    if (this->is_running_) {
-      if (this->stop_samba_server()) {
-        request->send(200, "application/json", "{\"status\": \"stopped\"}");
+  server->on("/samba/stop", web_server_idf::HTTP_POST, 
+    [this](web_server_idf::AsyncWebServerRequest *request) {
+      if (this->is_running_) {
+        if (this->stop_samba_server()) {
+          request->send(200, "application/json", "{\"status\": \"stopped\"}");
+        } else {
+          request->send(500, "application/json", "{\"error\": \"Failed to stop Samba server\"}");
+        }
       } else {
-        request->send(500, "application/json", "{\"error\": \"Failed to stop Samba server\"}");
+        request->send(200, "application/json", "{\"status\": \"not_running\"}");
       }
-    } else {
-      request->send(200, "application/json", "{\"status\": \"not_running\"}");
-    }
-  });
+    });
+    
+  // Add UI handler
+  server->on("/samba", web_server_idf::HTTP_GET, 
+    [this](web_server_idf::AsyncWebServerRequest *request) {
+      this->handle_ui(request);
+    });
 }
 
-bool SambaServer::canHandle(AsyncWebServerRequest *request) {
+bool SambaServer::canHandle(web_server_idf::AsyncWebServerRequest *request) {
   return str_startswith(std::string(request->url().c_str()), "/samba");
 }
 
-void SambaServer::handleRequest(AsyncWebServerRequest *request) {
+void SambaServer::handleRequest(web_server_idf::AsyncWebServerRequest *request) {
   // The actual handling is done by the registered handlers
 }
 
@@ -164,8 +175,8 @@ void SambaServer::samba_server_task(void *pvParameters) {
 }
 
 // HTML UI for Samba controls
-void SambaServer::handle_ui(AsyncWebServerRequest *request) {
-  AsyncResponseStream *response = request->beginResponseStream("text/html");
+void SambaServer::handle_ui(web_server_idf::AsyncWebServerRequest *request) {
+  web_server_idf::AsyncResponseStream *response = request->beginResponseStream("text/html");
   
   response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8>"
                     "<meta name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
