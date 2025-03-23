@@ -38,18 +38,19 @@ void SambaServer::handleRequest(web_server_idf::AsyncWebServerRequest *request) 
   auto path = request->url();
   
   if (path == "/samba/status") {
-    handle_status(request);
+    this->handle_status(request);
   } else if (path == "/samba/start" && request->method() == HTTP_POST) {
-    handle_start(request);
+    this->handle_start(request);
   } else if (path == "/samba/stop" && request->method() == HTTP_POST) {
-    handle_stop(request);
+    this->handle_stop(request);
   } else if (path == "/samba") {
-    handle_ui(request);
+    this->handle_ui(request);
   } else {
     request->send(404);
   }
 }
 
+// Définition des méthodes manquantes
 void SambaServer::handle_status(web_server_idf::AsyncWebServerRequest *request) {
   auto response = request->beginResponseStream("application/json");
   response->printf("{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}",
