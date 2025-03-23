@@ -22,7 +22,45 @@ FTPServer::FTPServer() :
   passive_data_port_(-1),
   passive_mode_enabled_(false),
   rename_from_("") {}  // Initialize rename_from_ to empty string
-
+void FTPServer::list_names(int socket, const std::string& args) {
+    // Implementation of the NLST command - lists only file/directory names
+    std::string path = normalize_path(root_path_, args);
+    
+    DIR* dir = opendir(path.c_str());
+    if (dir == nullptr) {
+        ESP_LOGE(TAG, "Failed to open directory %s for listing (errno: %d)", path.c_str(), errno);
+        send_response(socket, "550 Failed to open directory.");
+        return;
+    }
+    
+    // Verify data connection is ready
+    if (!passive_mode_enabled_ || passive_data_socket_ < 0) {
+        ESP_LOGE(TAG, "No data connection available for directory listing");
+        send_response(socket, "425 Use PORT or PASV first.");
+        closedir(dir);
+        return;
+    }
+    
+    send_response(socket, "150 Here comes the directory listing.");
+    
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        // Skip . and .. entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+            
+        std::string filename = entry->d_name;
+        filename += "\r\n";
+        
+        send(passive_data_socket_, filename.c_str(), filename.length(), 0);
+    }
+    
+    closedir(dir);
+    close(passive_data_socket_);
+    passive_data_socket_ = -1;
+    
+    send_response(socket, "226 Directory send OK.");
+}
 // Fonction d'aide pour normaliser les chemins de fichiers
 std::string normalize_path(const std::string& base_path, const std::string& path) {
   std::string result;
