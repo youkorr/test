@@ -1,7 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include <ESPAsyncWebServer.h>
+#include "esphome/components/web_server_base/web_server_base.h"
 
 namespace esphome {
 namespace samba_server {
