@@ -15,25 +15,30 @@ class SambaServer : public Component, public web_server_idf::AsyncWebHandler {
   void setup() override;
   void dump_config() override;
   
-  // AsyncWebHandler interface methods
+  // Méthodes requises par AsyncWebHandler
   bool canHandle(web_server_idf::AsyncWebServerRequest *request) override;
   void handleRequest(web_server_idf::AsyncWebServerRequest *request) override;
   
-  // Configuration methods
-  void set_share_name(std::string const &name);
-  void set_root_path(std::string const &path);
+  // Méthodes d'accès aux membres
+  bool is_running() const { return is_running_; }
+  const std::string& get_share_name() const { return share_name_; }
+  const std::string& get_root_path() const { return root_path_; }
+  
+  // Configuration
+  void set_share_name(const std::string &name);
+  void set_root_path(const std::string &path);
   void set_sd_mmc_card(sd_mmc_card::SdMmc *card);
   
-  // Web interface
+  // Gestion des handlers web
   void register_web_handlers();
   void handle_ui(web_server_idf::AsyncWebServerRequest *request);
   
-  // Samba server control
+  // Gestion du serveur Samba
   void init_samba_server();
   bool start_samba_server();
   bool stop_samba_server();
   
-  // Static task function for FreeRTOS
+  // Tâche FreeRTOS
   static void samba_server_task(void *pvParameters);
   
  private:
