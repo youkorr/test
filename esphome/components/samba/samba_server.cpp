@@ -14,9 +14,10 @@ namespace samba {
 static const char *TAG = "samba";
 static TaskHandle_t samba_task_handle = NULL;
 
-SambaServer::SambaServer(web_server_base::WebServerBase *base) : base_(base) {}
+SambaComponent::SambaComponent(web_server_base::WebServerBase *base)
+    : Component(), base_(base), is_running_(false) {}
 
-void SambaServer::setup() {
+void SambaComponent::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Samba Server...");
   this->base_->add_handler(this);
   this->init_samba_server();
