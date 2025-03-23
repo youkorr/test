@@ -15,22 +15,22 @@ void SDWebDAVComponent::setup() {
   
   // Set up authentication if credentials provided
   if (!username_.empty() && !password_.empty()) {
-    web_server_->set_authentication(username_.c_str(), password_.c_str());
+    web_server_->set_auth(username_.c_str(), password_.c_str());
   }
   
-  // Mount SD card
-  if (!sd_card_->begin()) {
+  // Initialize SD card
+  if (!sd_card_->setup()) {
     ESP_LOGE(TAG, "Failed to initialize SD card!");
     return;
   }
   
   // Set up WebDAV routes
-  web_server_->on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
+  web_server_->add_handler("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "WebDAV Server Running");
   });
   
   // Start server
-  web_server_->start();
+  web_server_->begin();
 }
 
 void SDWebDAVComponent::loop() {
