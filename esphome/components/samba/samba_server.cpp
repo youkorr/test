@@ -39,7 +39,35 @@ void SambaComponent::configure_samba() {
     ESP_LOGE(TAG, "Failed to create socket: %d", errno);
     return;
   }
-  
+  void SambaComponent::configure_samba() {
+  ESP_LOGI(TAG, "Starting simplified SMB server...");
+  ESP_LOGI(TAG, "  Workgroup: %s", this->workgroup_.c_str());
+  ESP_LOGI(TAG, "  Root path: %s", this->root_path_.c_str());
+  ESP_LOGI(TAG, "  Local master: %s", this->local_master_ ? "yes" : "no");
+  ESP_LOGI(TAG, "  Username: %s", this->username_.c_str());
+  ESP_LOGI(TAG, "  Password protection: %s", this->password_.empty() ? "no" : "yes");
+
+  if (this->enabled_shares_.empty()) {
+    ESP_LOGI(TAG, "  No shares enabled");
+  } else {
+    for (const auto &share : this->enabled_shares_) {
+      ESP_LOGI(TAG, "  Share '%s' -> %s", share.first.c_str(), share.second.c_str());
+    }
+  }
+  void SambaComponent::handle_smb_request(int client_socket) {
+  if (bytes_read > 0) {
+    ESP_LOGI(TAG, "Received %d bytes of SMB data", bytes_read);
+    
+    // Construire une réponse informative
+    char response[256];
+    snprintf(response, sizeof(response), 
+             "SMB protocol not fully implemented\nWorkgroup: %s\nShares: %zu\n",
+             this->workgroup_.c_str(), this->enabled_shares_.size());
+    
+    send(client_socket, response, strlen(response), 0);
+  }
+}  
+    
   // Configuration du socket
   int opt = 1;
   setsockopt(smb_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
