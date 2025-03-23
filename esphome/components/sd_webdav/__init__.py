@@ -1,37 +1,57 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import web_server
-from esphome.const import CONF_ID, CONF_USERNAME, CONF_PASSWORD
+from esphome.components import web_server_base
+from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
+from esphome.const import (
+    CONF_ID
+)
+from esphome.core import coroutine_with_priority, CORE
+from .. import sd_mmc_card
 
-DEPENDENCIES = ['web_server']
-AUTO_LOAD = ['web_server']
+CONF_URL_PREFIX = "url_prefix"
+CONF_ROOT_PATH = "root_path"
+CONF_ENABLE_DELETION = "enable_deletion"
+CONF_ENABLE_DOWNLOAD = "enable_download"
+CONF_ENABLE_UPLOAD = "enable_upload"
 
-webdav_ns = cg.esphome_ns.namespace('webdav')
-WebDAVComponent = webdav_ns.class_('WebDAVComponent', cg.Component, web_server.AsyncWebHandler)
+AUTO_LOAD = ["web_server_base"]
+DEPENDENCIES = ["sd_mmc_card"]
 
-CONF_MOUNT_POINT = 'mount_point'
-CONF_SD_CARD_ID = 'sd_card_id'
+sd_file_server_ns = cg.esphome_ns.namespace("sd_file_server")
+SDFileServer = sd_file_server_ns.class_("SDFileServer", cg.Component)
 
-CONFIG_SCHEMA = cv.Schema({
-    cv.GenerateID(): cv.declare_id(WebDAVComponent),
-    cv.Required(CONF_SD_CARD_ID): cv.use_id(cg.global_ns.class_("SDMMCCard")),
-    cv.Optional(CONF_MOUNT_POINT, default="/sdcard"): cv.string,
-    cv.Optional(CONF_USERNAME, default=""): cv.string,
-    cv.Optional(CONF_PASSWORD, default=""): cv.string,
-}).extend(cv.COMPONENT_SCHEMA)
+CONFIG_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(SDFileServer),
+            cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
+                web_server_base.WebServerBase
+            ),
+            cv.GenerateID(sd_mmc_card.CONF_SD_MMC_CARD_ID): cv.use_id(sd_mmc_card.SdMmc),
+            cv.Optional(CONF_URL_PREFIX, default="file"): cv.string_strict,
+            cv.Optional(CONF_ROOT_PATH, default="/"): cv.string_strict,
+            cv.Optional(CONF_ENABLE_DELETION, default=False): cv.boolean,
+            cv.Optional(CONF_ENABLE_DOWNLOAD, default=False): cv.boolean,
+            cv.Optional(CONF_ENABLE_UPLOAD, default=False): cv.boolean,
+        }
+    ).extend(cv.COMPONENT_SCHEMA),
+)
 
+@coroutine_with_priority(45.0)
 async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
+    paren = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
+    
+    var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
-
-    sd_card = await cg.get_variable(config[CONF_SD_CARD_ID])
-    cg.add(var.set_sd_card(sd_card))
-    cg.add(var.set_mount_point(config[CONF_MOUNT_POINT]))
-    cg.add(var.set_username(config[CONF_USERNAME]))
-    cg.add(var.set_password(config[CONF_PASSWORD]))
-
-    web_server_instance = await cg.get_variable("web_server")
-    cg.add(web_server_instance.register_handler(var))
+    sdmmc = await cg.get_variable(config[sd_mmc_card.CONF_SD_MMC_CARD_ID])
+    cg.add(var.set_sd_mmc_card(sdmmc))
+    cg.add(var.set_url_prefix(config[CONF_URL_PREFIX]))
+    cg.add(var.set_root_path(config[CONF_ROOT_PATH]))
+    cg.add(var.set_deletion_enabled(config[CONF_ENABLE_DELETION]))
+    cg.add(var.set_download_enabled(config[CONF_ENABLE_DOWNLOAD]))
+    cg.add(var.set_upload_enabled(config[CONF_ENABLE_UPLOAD]))
+    
+    cg.add_define("USE_SD_CARD_WEBSERVER")
 
 
 
