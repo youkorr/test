@@ -10,7 +10,6 @@
 #include "esp_netif.h"
 #include "esp_err.h"
 #include <errno.h>
-#include <cstring> // Pour strcmp
 
 namespace esphome {
 namespace ftp_server {
@@ -205,6 +204,7 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
   }
 
   size_t client_index = it - client_sockets_.begin();
+
   if (cmd_str.find("USER") == 0) {
     std::string username = cmd_str.substr(5);
     client_usernames_[client_index] = username;
@@ -413,22 +413,22 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       send_response(client_socket, 550, "Failed to create directory");
     }
   } else if (cmd_str.find("RMD") == 0) {
-      std::string dirname = cmd_str.substr(4);
-      // Supprimer les espaces au début
-      size_t first_non_space = dirname.find_first_not_of(" \t");
-      if (first_non_space != std::string::npos) {
-        dirname = dirname.substr(first_non_space);
-      }
-
-      std::string full_path = normalize_path(client_current_paths_[client_index], dirname);
-      ESP_LOGI(TAG, "Removing directory: %s", full_path.c_str());
-
-      if (rmdir(full_path.c_str()) == 0) {
-        send_response(client_socket, 250, "Directory removed successfully");
-      } else {
-        ESP_LOGE(TAG, "Failed to remove directory: %s (errno: %d)", full_path.c_str(), errno);
-        send_response(client_socket, 550, "Failed to remove directory");
-      }
+    std::string dirname = cmd_str.substr(4);
+    // Supprimer les espaces au début
+    size_t first_non_space = dirname.find_first_not_of(" \t");
+    if (first_non_space != std::string::npos) {
+      dirname = dirname.substr(first_non_space);
+    }
+    
+    std::string full_path = normalize_path(client_current_paths_[client_index], dirname);
+    ESP_LOGI(TAG, "Removing directory: %s", full_path.c_str());
+    
+    if (rmdir(full_path.c_str()) == 0) {
+      send_response(client_socket, 250, "Directory removed");
+    } else {
+      ESP_LOGE(TAG, "Failed to remove directory: %s (errno: %d)", full_path.c_str(), errno);
+      send_response(client_socket, 550, "Failed to remove directory");
+    }
   } else if (cmd_str.find("RNFR") == 0) {
     std::string filename = cmd_str.substr(5);
     // Supprimer les espaces au début
@@ -438,17 +438,38 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
     
     rename_from_ = normalize_path(client_current_paths_[client_index], filename);
-    
-    // Vérifier si le fichier/dossier existe
-    struct stat buffer;
-    if (stat(rename_from_.c_str(), &buffer) == 0) {
-      send_response(client_socket, 350, "File exists, ready for destination name");
+    struct stat file_stat;
+    if (stat(rename_from_.c_str(), &file_stat) == 0) {
+      send_response(client_socket, 350, "Ready for RNTO");
     } else {
-      ESP_LOGE(TAG, "File not found: %s (errno: %d)", rename_from_.c_str(), errno);
+      ESP_LOGE(TAG, "File not found for rename: %s (errno: %d)", rename_from_.c_str(), errno);
       send_response(client_socket, 550, "File not found");
-      rename_from_ = ""; // Réinitialiser
+      rename_from_ = "";
     }
   } else if (cmd_str.find("RNTO") == 0) {
+    if (rename_from_.empty()) {
+      send_response(client_socket, 503, "RNFR required first");
+    } else {
+      std::string filename = cmd_str.substr(5);
+      // Supprimer les espaces au début
+      size_t first_non_space = filename.find_first_not_of(" \t");
+      if (first_non_space != std::string::npos) {
+        filename = filename.substr(first_non_space);
+      }
+      
+      std::string rename_to = normalize_path(client_current_paths_[client_index], filename);
+      ESP_LOGI(TAG, "Renaming from %s to %s", rename_from_.c_str(), rename_to.c_str());
+      
+      if (rename(rename_from_.c_str(), rename_to.c_str()) == 0) {
+        send_response(client_socket, 250, "Rename successful");
+      } else {
+        ESP_LOGE(TAG, "Failed to rename: %s -> %s (errno: %d)", 
+                 rename_from_.c_str(), rename_to.c_str(), errno);
+        send_response(client_socket, 550, "Rename failed");
+      }
+      rename_from_ = "";
+    }
+  } else if (cmd_str.find("SIZE") == 0) {
     std::string filename = cmd_str.substr(5);
     // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
@@ -456,21 +477,33 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       filename = filename.substr(first_non_space);
     }
     
-    if (rename_from_.empty()) {
-      send_response(client_socket, 503, "RNFR required first");
-      return;
+    std::string full_path = normalize_path(client_current_paths_[client_index], filename);
+    struct stat file_stat;
+    if (stat(full_path.c_str(), &file_stat) == 0 && S_ISREG(file_stat.st_mode)) {
+      send_response(client_socket, 213, std::to_string(file_stat.st_size));
+    } else {
+      send_response(client_socket, 550, "File not found or not a regular file");
+    }
+  } else if (cmd_str.find("MDTM") == 0) {
+    std::string filename = cmd_str.substr(5);
+    // Supprimer les espaces au début
+    size_t first_non_space = filename.find_first_not_of(" \t");
+    if (first_non_space != std::string::npos) {
+      filename = filename.substr(first_non_space);
     }
     
     std::string full_path = normalize_path(client_current_paths_[client_index], filename);
-    ESP_LOGI(TAG, "Renaming %s to %s", rename_from_.c_str(), full_path.c_str());
-    
-    if (rename(rename_from_.c_str(), full_path.c_str()) == 0) {
-      send_response(client_socket, 250, "Renamed successfully");
+    struct stat file_stat;
+    if (stat(full_path.c_str(), &file_stat) == 0) {
+      char mdtm_str[15];
+      struct tm *tm_info = gmtime(&file_stat.st_mtime);
+      strftime(mdtm_str, sizeof(mdtm_str), "%Y%m%d%H%M%S", tm_info);
+      send_response(client_socket, 213, mdtm_str);
     } else {
-      ESP_LOGE(TAG, "Rename failed (errno: %d)", errno);
-      send_response(client_socket, 550, "Rename failed");
+      send_response(client_socket, 550, "File not found");
     }
-    rename_from_ = ""; // Réinitialiser
+  } else if (cmd_str.find("NOOP") == 0) {
+    send_response(client_socket, 200, "NOOP command successful");
   } else if (cmd_str.find("QUIT") == 0) {
     send_response(client_socket, 221, "Goodbye");
     close(client_socket);
@@ -482,40 +515,47 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       client_usernames_.erase(client_usernames_.begin() + index);
       client_current_paths_.erase(client_current_paths_.begin() + index);
     }
-  }
-   else {
-    ESP_LOGW(TAG, "Unknown FTP command: %s", cmd_str.c_str());
+  } else {
     send_response(client_socket, 502, "Command not implemented");
   }
 }
 
+void FTPServer::send_response(int client_socket, int code, const std::string& message) {
+  std::string response = std::to_string(code) + " " + message + "\r\n";
+  send(client_socket, response.c_str(), response.length(), 0);
+  ESP_LOGD(TAG, "Sent: %s", response.c_str());
+}
+
 bool FTPServer::authenticate(const std::string& username, const std::string& password) {
-  return (username == username_) && (password == password_);
+  return username == username_ && password == password_;
 }
 
 bool FTPServer::start_passive_mode(int client_socket) {
-  // Créer un socket pour la connexion de données passive
+  if (passive_data_socket_ != -1) {
+    close(passive_data_socket_);
+    passive_data_socket_ = -1;
+  }
+
   passive_data_socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (passive_data_socket_ < 0) {
     ESP_LOGE(TAG, "Failed to create passive data socket (errno: %d)", errno);
     return false;
   }
 
-  // Autoriser la réutilisation de l'adresse
   int opt = 1;
   if (setsockopt(passive_data_socket_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-    ESP_LOGE(TAG, "Failed to set passive data socket options (errno: %d)", errno);
+    ESP_LOGE(TAG, "Failed to set socket options for passive mode (errno: %d)", errno);
     close(passive_data_socket_);
     passive_data_socket_ = -1;
     return false;
   }
 
-  // Liaison à un port éphémère
   struct sockaddr_in data_addr;
   memset(&data_addr, 0, sizeof(data_addr));
   data_addr.sin_family = AF_INET;
-  data_addr.sin_port = htons(0);  // Laisser le système choisir le port
   data_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  data_addr.sin_port = htons(0);  // Let the system choose a port
+
   if (bind(passive_data_socket_, (struct sockaddr *)&data_addr, sizeof(data_addr)) < 0) {
     ESP_LOGE(TAG, "Failed to bind passive data socket (errno: %d)", errno);
     close(passive_data_socket_);
@@ -523,7 +563,6 @@ bool FTPServer::start_passive_mode(int client_socket) {
     return false;
   }
 
-  // Écoute sur le socket
   if (listen(passive_data_socket_, 1) < 0) {
     ESP_LOGE(TAG, "Failed to listen on passive data socket (errno: %d)", errno);
     close(passive_data_socket_);
@@ -531,23 +570,17 @@ bool FTPServer::start_passive_mode(int client_socket) {
     return false;
   }
 
-  // Récupérer le port attribué
   struct sockaddr_in sin;
   socklen_t len = sizeof(sin);
-  if (getsockname(passive_data_socket_, (struct sockaddr *)&sin, &len) == -1) {
-    ESP_LOGE(TAG, "Failed to getsockname (errno: %d)", errno);
+  if (getsockname(passive_data_socket_, (struct sockaddr *)&sin, &len) < 0) {
+    ESP_LOGE(TAG, "Failed to get socket name (errno: %d)", errno);
     close(passive_data_socket_);
     passive_data_socket_ = -1;
     return false;
   }
+
   passive_data_port_ = ntohs(sin.sin_port);
 
-  // Préparer la réponse PASV
-  int p1 = passive_data_port_ / 256;
-  int p2 = passive_data_port_ % 256;
-
-  // Obtenir l'adresse IP de l'interface
-  esp_netif_ip_info_t ip_info;
   esp_netif_t *netif = esp_netif_get_default_netif();
   if (netif == nullptr) {
     ESP_LOGE(TAG, "Failed to get default netif");
@@ -555,7 +588,7 @@ bool FTPServer::start_passive_mode(int client_socket) {
     passive_data_socket_ = -1;
     return false;
   }
-
+  esp_netif_ip_info_t ip_info;
   if (esp_netif_get_ip_info(netif, &ip_info) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to get IP info");
     close(passive_data_socket_);
@@ -563,23 +596,34 @@ bool FTPServer::start_passive_mode(int client_socket) {
     return false;
   }
 
-  char ip_str[INET_ADDRSTRLEN];
-  inet_ntop(AF_INET, &ip_info.ip.addr, ip_str, INET_ADDRSTRLEN);
+  uint32_t ip = ip_info.ip.addr;
+  std::string response = "Entering Passive Mode (" +
+                        std::to_string((ip & 0xFF)) + "," +
+                        std::to_string((ip >> 8) & 0xFF) + "," +
+                        std::to_string((ip >> 16) & 0xFF) + "," +
+                        std::to_string((ip >> 24) & 0xFF) + "," +
+                        std::to_string(passive_data_port_ >> 8) + "," +
+                        std::to_string(passive_data_port_ & 0xFF) + ")";
 
-  // Remplacer les points par des virgules
-  std::string ip_address = ip_str;
-  std::replace(ip_address.begin(), ip_address.end(), '.', ',');
-
-  std::string response = "Entering Passive Mode (" + ip_address + "," + std::to_string(p1) + "," + std::to_string(p2) + ")";
   send_response(client_socket, 227, response);
-
-  fcntl(passive_data_socket_, F_SETFL, O_NONBLOCK);
   return true;
 }
 
-int FTPServer::accept_data_connection() {
-  if (!passive_mode_enabled_) {
-    ESP_LOGE(TAG, "Passive mode not enabled");
+int FTPServer::open_data_connection(int client_socket) {
+  if (passive_data_socket_ == -1) {
+    return -1;
+  }
+
+  struct timeval tv;
+  tv.tv_sec = 5;
+  tv.tv_usec = 0;
+
+  fd_set readfds;
+  FD_ZERO(&readfds);
+  FD_SET(passive_data_socket_, &readfds);
+
+  int ret = select(passive_data_socket_ + 1, &readfds, nullptr, nullptr, &tv);
+  if (ret <= 0) {
     return -1;
   }
 
@@ -588,12 +632,12 @@ int FTPServer::accept_data_connection() {
   int data_socket = accept(passive_data_socket_, (struct sockaddr *)&client_addr, &client_len);
 
   if (data_socket < 0) {
-    ESP_LOGE(TAG, "Failed to accept data connection (errno: %d)", errno);
     return -1;
   }
 
-  fcntl(data_socket, F_SETFL, O_NONBLOCK);
-  ESP_LOGI(TAG, "Data connection accepted");
+  int flags = fcntl(data_socket, F_GETFL, 0);
+  fcntl(data_socket, F_SETFL, flags & ~O_NONBLOCK);
+
   return data_socket;
 }
 
@@ -721,7 +765,6 @@ bool FTPServer::is_running() const {
 
 }  // namespace ftp_server
 }  // namespace esphome
-
 
 
 
