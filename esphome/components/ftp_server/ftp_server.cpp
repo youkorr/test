@@ -20,7 +20,8 @@ FTPServer::FTPServer() :
   ftp_server_socket_(-1),
   passive_data_socket_(-1),
   passive_data_port_(-1),
-  passive_mode_enabled_(false) {}
+  passive_mode_enabled_(false),
+  rename_from_("") {}  // Initialize rename_from_ to empty string
 
 // Fonction d'aide pour normaliser les chemins de fichiers
 std::string normalize_path(const std::string& base_path, const std::string& path) {
