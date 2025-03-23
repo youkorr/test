@@ -21,30 +21,25 @@ FTPServer::FTPServer() :
   passive_data_socket_(-1),
   passive_data_port_(-1),
   passive_mode_enabled_(false),
-  rename_from_("") {}  // Initialize rename_from_ to empty string
+  rename_from_("") {}
 
-// Fonction d'aide pour normaliser les chemins de fichiers
 std::string normalize_path(const std::string& base_path, const std::string& path) {
   std::string result;
   
-  // Si le chemin est vide, retourner le chemin de base
   if (path.empty() || path == ".") {
     return base_path;
   }
   
-  // Si le chemin demandé est absolu (commence par '/')
   if (path[0] == '/') {
     if (path == "/") {
-      return base_path;  // Racine demandée
+      return base_path;
     }
-    // Enlever le premier '/' pour éviter les doubles slashes
     std::string clean_path = path;
     if (base_path.back() == '/' && path[0] == '/') {
       clean_path = path.substr(1);
     }
     result = base_path + clean_path;
   } else {
-    // Chemin relatif
     if (base_path.back() == '/') {
       result = base_path + path;
     } else {
@@ -52,7 +47,6 @@ std::string normalize_path(const std::string& base_path, const std::string& path
     }
   }
   
-  // Journaliser le chemin final pour le débogage
   ESP_LOGD(TAG, "Normalized path: %s (from base: %s, request: %s)", 
            result.c_str(), base_path.c_str(), path.c_str());
   
@@ -62,22 +56,18 @@ std::string normalize_path(const std::string& base_path, const std::string& path
 void FTPServer::setup() {
   ESP_LOGI(TAG, "Setting up FTP server...");
 
-  // Assurez-vous que le chemin racine existe
   if (root_path_.empty()) {
-    root_path_ = "/sdcard";  // Valeur par défaut si non spécifiée
+    root_path_ = "/sdcard";
   }
   
-  // S'assurer que le chemin racine se termine par un slash
   if (root_path_.back() != '/') {
     root_path_ += '/';
   }
 
-  // Vérifier que le répertoire racine existe
   DIR *dir = opendir(root_path_.c_str());
   if (dir == nullptr) {
     ESP_LOGE(TAG, "Root directory %s does not exist or is not accessible (errno: %d)", 
              root_path_.c_str(), errno);
-    // On tente de créer le répertoire si nécessaire
     if (mkdir(root_path_.c_str(), 0755) != 0) {
       ESP_LOGE(TAG, "Failed to create root directory %s (errno: %d)", 
                root_path_.c_str(), errno);
@@ -92,7 +82,6 @@ void FTPServer::setup() {
   } else {
     ESP_LOGE(TAG, "Root directory %s still not accessible after creation attempt", 
              root_path_.c_str());
-    // On continue malgré tout, peut-être que le répertoire sera créé plus tard
   }
 
   ftp_server_socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -231,7 +220,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     send_response(client_socket, 200, "Type set to " + cmd_str.substr(5));
   } else if (cmd_str.find("PWD") == 0) {
     std::string current_path = client_current_paths_[client_index];
-    // Convertir le chemin absolu en relatif par rapport à la racine pour l'affichage
     std::string relative_path = "/";
     if (current_path.length() > root_path_.length()) {
       relative_path = current_path.substr(root_path_.length() - 1);
@@ -239,7 +227,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     send_response(client_socket, 257, "\"" + relative_path + "\" is current directory");
   } else if (cmd_str.find("CWD") == 0) {
     std::string path = cmd_str.substr(4);
-    // Sauter les espaces au début du chemin
     size_t first_non_space = path.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       path = path.substr(first_non_space);
@@ -252,16 +239,13 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       std::string full_path;
       
       if (path == "/") {
-        // Retour à la racine
         full_path = root_path_;
       } else {
-        // Utiliser la fonction de normalisation des chemins
         full_path = normalize_path(current_path, path);
       }
       
       ESP_LOGI(TAG, "Attempting to change directory to: %s", full_path.c_str());
       
-      // Vérifier si le chemin existe et est un répertoire
       DIR *dir = opendir(full_path.c_str());
       if (dir != nullptr) {
         closedir(dir);
@@ -275,25 +259,21 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
   } else if (cmd_str.find("CDUP") == 0) {
     std::string current = client_current_paths_[client_index];
     
-    // Ne pas remonter au-delà de la racine
     if (current == root_path_ || current.length() <= root_path_.length()) {
       send_response(client_socket, 250, "Already at root directory");
       return;
     }
     
-    // Trouver le dernier séparateur de répertoire
     size_t pos = current.find_last_of('/');
     if (pos != std::string::npos && current.length() > 1) {
-      // Si le chemin se termine par un slash, ignorer ce slash
       if (pos == current.length() - 1) {
         std::string temp = current.substr(0, pos);
         pos = temp.find_last_of('/');
       }
       
       if (pos != std::string::npos) {
-        std::string parent_dir = current.substr(0, pos + 1);  // Inclure le slash
+        std::string parent_dir = current.substr(0, pos + 1);
         
-        // Vérifier que nous ne remontons pas au-dessus de la racine
         if (parent_dir.length() >= root_path_.length()) {
           client_current_paths_[client_index] = parent_dir;
           send_response(client_socket, 250, "Directory successfully changed");
@@ -317,10 +297,8 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     std::string path_arg = "";
     std::string cmd_type = cmd_str.substr(0, 4);
     
-    // Extraire l'argument de chemin s'il existe
     if (cmd_str.length() > 5) {
       path_arg = cmd_str.substr(5);
-      // Supprimer les espaces au début
       size_t first_non_space = path_arg.find_first_not_of(" \t");
       if (first_non_space != std::string::npos) {
         path_arg = path_arg.substr(first_non_space);
@@ -339,12 +317,11 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     
     if (cmd_type == "LIST") {
       list_directory(client_socket, list_path);
-    } else { // NLST - simple name listing
+    } else {
       list_names(client_socket, list_path);
     }
   } else if (cmd_str.find("STOR") == 0) {
     std::string filename = cmd_str.substr(5);
-    // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       filename = filename.substr(first_non_space);
@@ -356,7 +333,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     start_file_upload(client_socket, full_path);
   } else if (cmd_str.find("RETR") == 0) {
     std::string filename = cmd_str.substr(5);
-    // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       filename = filename.substr(first_non_space);
@@ -381,7 +357,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("DELE") == 0) {
     std::string filename = cmd_str.substr(5);
-    // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       filename = filename.substr(first_non_space);
@@ -398,7 +373,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("MKD") == 0) {
     std::string dirname = cmd_str.substr(4);
-    // Supprimer les espaces au début
     size_t first_non_space = dirname.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       dirname = dirname.substr(first_non_space);
@@ -415,7 +389,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("RMD") == 0) {
     std::string dirname = cmd_str.substr(4);
-    // Supprimer les espaces au début
     size_t first_non_space = dirname.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       dirname = dirname.substr(first_non_space);
@@ -432,7 +405,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("RNFR") == 0) {
     std::string filename = cmd_str.substr(5);
-    // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       filename = filename.substr(first_non_space);
@@ -452,7 +424,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
       send_response(client_socket, 503, "RNFR required first");
     } else {
       std::string filename = cmd_str.substr(5);
-      // Supprimer les espaces au début
       size_t first_non_space = filename.find_first_not_of(" \t");
       if (first_non_space != std::string::npos) {
         filename = filename.substr(first_non_space);
@@ -472,7 +443,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("SIZE") == 0) {
     std::string filename = cmd_str.substr(5);
-    // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       filename = filename.substr(first_non_space);
@@ -487,7 +457,6 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     }
   } else if (cmd_str.find("MDTM") == 0) {
     std::string filename = cmd_str.substr(5);
-    // Supprimer les espaces au début
     size_t first_non_space = filename.find_first_not_of(" \t");
     if (first_non_space != std::string::npos) {
       filename = filename.substr(first_non_space);
@@ -555,7 +524,7 @@ bool FTPServer::start_passive_mode(int client_socket) {
   memset(&data_addr, 0, sizeof(data_addr));
   data_addr.sin_family = AF_INET;
   data_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  data_addr.sin_port = htons(0);  // Let the system choose a port
+  data_addr.sin_port = htons(0);
 
   if (bind(passive_data_socket_, (struct sockaddr *)&data_addr, sizeof(data_addr)) < 0) {
     ESP_LOGE(TAG, "Failed to bind passive data socket (errno: %d)", errno);
@@ -573,7 +542,7 @@ bool FTPServer::start_passive_mode(int client_socket) {
 
   struct sockaddr_in sin;
   socklen_t len = sizeof(sin);
-  if (getsockname(passive_data_socket_, (struct sockaddr *)&sin, &len) < 0) {
+  if (getsockname(passive_data_socket_, (struct sockaddr *)&sin, &len)) < 0) {
     ESP_LOGE(TAG, "Failed to get socket name (errno: %d)", errno);
     close(passive_data_socket_);
     passive_data_socket_ = -1;
@@ -697,6 +666,42 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
                perm_str, (long)entry_stat.st_size, time_str, entry_name.c_str());
       
       send(data_socket, list_item, strlen(list_item), 0);
+    }
+  }
+
+  closedir(dir);
+  close(data_socket);
+  close_data_connection(client_socket);
+  send_response(client_socket, 226, "Directory send OK");
+}
+
+void FTPServer::list_names(int client_socket, const std::string& path) {
+  int data_socket = open_data_connection(client_socket);
+  if (data_socket < 0) {
+    send_response(client_socket, 425, "Can't open data connection");
+    return;
+  }
+
+  DIR *dir = opendir(path.c_str());
+  if (dir == nullptr) {
+    close(data_socket);
+    close_data_connection(client_socket);
+    send_response(client_socket, 550, "Failed to open directory");
+    return;
+  }
+
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != nullptr) {
+    std::string entry_name = entry->d_name;
+    if (entry_name == "." || entry_name == "..") {
+      continue;
+    }
+
+    std::string full_path = path + "/" + entry_name;
+    struct stat entry_stat;
+    if (stat(full_path.c_str(), &entry_stat) == 0) {
+      std::string list_item = entry_name + "\r\n";
+      send(data_socket, list_item.c_str(), list_item.length(), 0);
     }
   }
 
