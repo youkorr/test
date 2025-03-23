@@ -9,6 +9,8 @@
 #include <ctime>
 #include "esp_netif.h"
 #include "esp_err.h"
+#include <sstream>
+#include <vector>
 
 namespace esphome {
 namespace ftp_server {
@@ -111,6 +113,43 @@ void FTPServer::handle_ftp_client(int client_socket) {
   }
 }
 
+std::string FTPServer::normalize_path(const std::string& path) {
+    std::vector<std::string> parts;
+    std::istringstream iss(path);
+    std::string part;
+    while (std::getline(iss, part, '/')) {
+        if (part == "..") {
+            if (!parts.empty()) parts.pop_back();
+        } else if (!part.empty() && part != ".") {
+            parts.push_back(part);
+        }
+    }
+    std::string result = "/";
+    for (const auto& p : parts) {
+        result += p + "/";
+    }
+
+    if (result.length() > 1 && result.back() == '/') {
+        result.pop_back();
+    }
+
+    if (result.empty()) {
+        result = "/";
+    }
+
+    return result;
+}
+
+std::string FTPServer::construct_path(const std::string& root, const std::string& current, const std::string& requested) {
+    if (requested[0] == '/') {
+        // Chemin absolu, on ignore le chemin courant
+        return normalize_path(root + requested);
+    } else {
+        // Chemin relatif, on part du chemin courant
+        return normalize_path(current + "/" + requested);
+    }
+}
+
 void FTPServer::process_command(int client_socket, const std::string& command) {
   ESP_LOGI(TAG, "FTP command: %s", command.c_str());
   std::string cmd_str = command;
@@ -154,55 +193,65 @@ void FTPServer::process_command(int client_socket, const std::string& command) {
     ESP_LOGD(TAG, "PWD - Current path: %s", client_current_paths_[client_index].c_str());
     send_response(client_socket, 257, "\"" + client_current_paths_[client_index] + "\" is current directory");
   } else if (cmd_str.find("CWD") == 0) {
-    std::string path = cmd_str.substr(4);
-    if (path.empty()) {
-      send_response(client_socket, 550, "Failed to change directory");
-    } else {
-      std::string full_path;
+      std::string path = cmd_str.substr(4);
+      if (path.empty()) {
+          send_response(client_socket, 550, "Failed to change directory: Path is empty");
+          return;
+      }
+
       ESP_LOGD(TAG, "CWD - path: %s", path.c_str());
       ESP_LOGD(TAG, "CWD - root_path_: %s", root_path_.c_str());
       ESP_LOGD(TAG, "CWD - client_current_paths_[client_index]: %s", client_current_paths_[client_index].c_str());
 
-      if (path[0] == '/') {
-        full_path = root_path_.substr(0, root_path_.length() - 1) + path; // Correction CRITIQUE ici
-        ESP_LOGD(TAG, "CWD - Absolute path, full_path (without root slash): %s", full_path.c_str());
-      } else {
-        full_path = client_current_paths_[client_index] + "/" + path;
-        ESP_LOGD(TAG, "CWD - Relative path, full_path: %s", full_path.c_str());
-      }
+      std::string full_path = construct_path(root_path_, client_current_paths_[client_index], path);
 
-      ESP_LOGD(TAG, "CWD - Attempting to change directory to: %s", full_path.c_str());
+      ESP_LOGD(TAG, "CWD - Constructed full path: %s", full_path.c_str());
+
       DIR *dir = opendir(full_path.c_str());
       if (dir != nullptr) {
-        closedir(dir);
-        client_current_paths_[client_index] = full_path;
-        ESP_LOGD(TAG, "CWD - Directory successfully changed to: %s", client_current_paths_[client_index].c_str());
-        send_response(client_socket, 250, "Directory successfully changed");
+          closedir(dir);
+          client_current_paths_[client_index] = full_path;
+          ESP_LOGD(TAG, "CWD - Directory successfully changed to: %s", client_current_paths_[client_index].c_str());
+          send_response(client_socket, 250, "Directory successfully changed");
       } else {
-        ESP_LOGE(TAG, "CWD - Failed to change directory. errno: %d", errno);
-        send_response(client_socket, 550, "Failed to change directory");
+          ESP_LOGE(TAG, "CWD - Failed to change directory. Path: %s, errno: %d (%s)",
+                   full_path.c_str(), errno, strerror(errno));
+          send_response(client_socket, 550, "Failed to change directory");
       }
-    }
   } else if (cmd_str.find("CDUP") == 0) {
-    std::string current = client_current_paths_[client_index];
-    size_t pos = current.find_last_of('/');
-    ESP_LOGD(TAG, "CDUP - current path: %s", current.c_str());
-    ESP_LOGD(TAG, "CDUP - root_path_: %s", root_path_.c_str());
+      std::string current = client_current_paths_[client_index];
+      ESP_LOGD(TAG, "CDUP - current path: %s", current.c_str());
+      ESP_LOGD(TAG, "CDUP - root_path_: %s", root_path_.c_str());
 
-    if (pos != std::string::npos && client_current_paths_[client_index] != root_path_) {
-      std::string new_path = current.substr(0, pos);
-      if (new_path.empty()) {
-        client_current_paths_[client_index] = root_path_; // On est à la racine
-        ESP_LOGD(TAG, "CDUP - Changed directory to root: %s", client_current_paths_[client_index].c_str());
+      std::string new_path;
+      if (current == root_path_) {
+          new_path = root_path_;
+          ESP_LOGD(TAG, "CDUP - Already at root, staying at: %s", new_path.c_str());
       } else {
-        client_current_paths_[client_index] = new_path;
-        ESP_LOGD(TAG, "CDUP - Changed directory to: %s", client_current_paths_[client_index].c_str());
+          size_t pos = current.find_last_of('/');
+          if (pos != std::string::npos) {
+              new_path = current.substr(0, pos);
+              if (new_path.empty()) {
+                  new_path = root_path_;
+              }
+              ESP_LOGD(TAG, "CDUP - Navigating to: %s", new_path.c_str());
+          } else {
+              new_path = root_path_;
+              ESP_LOGW(TAG, "CDUP - Could not determine parent, navigating to root: %s", new_path.c_str());
+          }
       }
-      send_response(client_socket, 250, "Directory successfully changed");
-    } else {
-      ESP_LOGD(TAG, "CDUP - Failed to change directory (already at root or error)");
-      send_response(client_socket, 550, "Failed to change directory");
-    }
+
+      DIR *dir = opendir(new_path.c_str());
+      if (dir != nullptr) {
+          closedir(dir);
+          client_current_paths_[client_index] = new_path;
+          ESP_LOGD(TAG, "CDUP - Directory successfully changed to: %s", client_current_paths_[client_index].c_str());
+          send_response(client_socket, 250, "Directory successfully changed");
+      } else {
+          ESP_LOGE(TAG, "CDUP - Failed to change directory. Path: %s, errno: %d (%s)",
+                   new_path.c_str(), errno, strerror(errno));
+          send_response(client_socket, 550, "Failed to change directory");
+      }
   } else if (cmd_str.find("PASV") == 0) {
     if (start_passive_mode(client_socket)) {
       passive_mode_enabled_ = true;
@@ -389,7 +438,6 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
     return;
   }
    ESP_LOGD(TAG, "list_directory - Listing directory: %s", path.c_str());
-
   DIR *dir = opendir(path.c_str());
   if (dir == nullptr) {
     ESP_LOGE(TAG, "list_directory - opendir failed with errno: %d", errno);
@@ -407,118 +455,116 @@ void FTPServer::list_directory(int client_socket, const std::string& path) {
     }
 
     char full_path[256]; // Adjust size as needed
-    snprintf(full_path, sizeof(full_path), "%s%s", path.c_str(), entry_name.c_str());
+    snprintf(full_path, sizeof(full_path), "%s/%s", path.c_str(), entry_name.c_str()); // Ajout d'un slash
     std::string full_path_str(full_path);
     ESP_LOGD(TAG, "list_directory - full_path for stat: %s", full_path_str.c_str());
 
     struct stat entry_stat;
     if (stat(full_path_str.c_str(), &entry_stat) == 0) {
-      char time_str[80];
-      strftime(time_str, sizeof(time_str), "%b %d %H:%M", localtime(&entry_stat.st_mtime));
+      const char *perms = ((entry_stat.st_mode & S_IFDIR) ? "d" : "-");
 
-      char perm_str[11] = "----------";
-      if (S_ISDIR(entry_stat.st_mode)) perm_str[0] = 'd';
-      if (entry_stat.st_mode & S_IRUSR) perm_str[1] = 'r';
-      if (entry_stat.st_mode & S_IWUSR) perm_str[2] = 'w';
-      if (entry_stat.st_mode & S_IXUSR) perm_str[3] = 'x';
-      if (entry_stat.st_mode & S_IRGRP) perm_str[4] = 'r';
-      if (entry_stat.st_mode & S_IWGRP) perm_str[5] = 'w';
-      if (entry_stat.st_mode & S_IXGRP) perm_str[6] = 'x';
-      if (entry_stat.st_mode & S_IROTH) perm_str[7] = 'r';
-      if (entry_stat.st_mode & S_IWOTH) perm_str[8] = 'w';
-      if (entry_stat.st_mode & S_IXOTH) perm_str[9] = 'x';
+      std::string line = perms;
+       line += "---------- 1 owner group ";
+      line += std::to_string(entry_stat.st_size) + " ";
 
-      char list_item[512];
-      snprintf(list_item, sizeof(list_item),
-               "%s 1 root root %8ld %s %s\r\n",
-               perm_str, (long)entry_stat.st_size, time_str, entry_name.c_str());
+        // Convertir le timestamp en une chaîne de caractères formatée
+        std::time_t t = entry_stat.st_mtime;
+        std::tm* timeinfo = std::localtime(&t);
+        char time_buf[80];
+        strftime(time_buf, sizeof(time_buf), "%b %d %H:%M", timeinfo); // Format: "Mmm dd hh:mm"
+        line += time_buf;
+      line += " " + entry_name;
 
-      if (send(data_socket, list_item, strlen(list_item), 0) < 0) {
-        ESP_LOGE(TAG, "list_directory - send() failed, errno: %d", errno);
-        break; // Exit loop on send error
-      }
+      line += "\r\n";
+      send(data_socket, line.c_str(), line.length(), 0);
     } else {
-      ESP_LOGW(TAG, "list_directory - stat failed for %s with errno: %d", full_path_str.c_str(), errno);
+      ESP_LOGE(TAG, "list_directory - stat failed for %s with errno: %d", full_path_str.c_str(), errno);
     }
   }
 
   closedir(dir);
+  send_response(client_socket, 226, "Directory listing complete");
   close(data_socket);
   close_data_connection(client_socket);
-  send_response(client_socket, 226, "Directory send OK");
-   ESP_LOGD(TAG, "list_directory - Directory listing completed");
 }
 
-void FTPServer::start_file_upload(int client_socket, const std::string& path) {
-  int data_socket = open_data_connection(client_socket);
-  if (data_socket < 0) {
-    send_response(client_socket, 425, "Can't open data connection");
-    return;
-  }
-  ESP_LOGD(TAG, "start_file_upload - Opening file for writing: %s", path.c_str());
-  int file_fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-  if (file_fd < 0) {
-    ESP_LOGE(TAG, "start_file_upload - Failed to open file for writing, errno: %d", errno);
-    close(data_socket);
-    close_data_connection(client_socket);
-    send_response(client_socket, 550, "Failed to open file for writing");
-    return;
-  }
-
-  char buffer[2048];
-  int len;
-  while ((len = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
-    if (write(file_fd, buffer, len) != len) {
-       ESP_LOGE(TAG, "start_file_upload - Failed to write to file, errno: %d", errno);
-      break;
+void FTPServer::start_file_upload(int client_socket, const std::string& full_path) {
+    int data_socket = open_data_connection(client_socket);
+    if (data_socket < 0) {
+        ESP_LOGE(TAG, "start_file_upload - Can't open data connection");
+        send_response(client_socket, 425, "Can't open data connection");
+        return;
     }
-  }
 
-  close(file_fd);
-  close(data_socket);
-  close_data_connection(client_socket);
-  send_response(client_socket, 226, "Transfer complete");
-   ESP_LOGD(TAG, "start_file_upload - Transfer complete");
-}
+    FILE *file = fopen(full_path.c_str(), "wb");
+    if (file == nullptr) {
+        ESP_LOGE(TAG, "start_file_upload - Failed to open file for writing: %s, errno: %d", full_path.c_str(), errno);
+        send_response(client_socket, 553, "Could not create file.");
+        close(data_socket);
+        close_data_connection(client_socket);
+        return;
+    }
 
-void FTPServer::start_file_download(int client_socket, const std::string& path) {
-  int data_socket = open_data_connection(client_socket);
-  if (data_socket < 0) {
-    send_response(client_socket, 425, "Can't open data connection");
-    return;
-  }
-   ESP_LOGD(TAG, "start_file_download - Opening file for reading: %s", path.c_str());
-  int file_fd = open(path.c_str(), O_RDONLY);
-  if (file_fd < 0) {
-     ESP_LOGE(TAG, "start_file_download - Failed to open file for reading, errno: %d", errno);
+    char buffer[512];
+    int bytes_received;
+
+    while ((bytes_received = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
+        fwrite(buffer, 1, bytes_received, file);
+    }
+
+    fclose(file);
     close(data_socket);
     close_data_connection(client_socket);
-    send_response(client_socket, 550, "Failed to open file for reading");
-    return;
-  }
 
-  char buffer[2048];
-  int len;
-  while ((len = read(file_fd, buffer, sizeof(buffer))) > 0) { //Utiliser read() ici!
-     if (send(data_socket, buffer, len, 0) != len) {
-         ESP_LOGE(TAG, "start_file_download - Failed to send data, errno: %d", errno);
-         break;
-     }
-  }
-
-  close(file_fd);
-  close(data_socket);
-  close_data_connection(client_socket);
-  send_response(client_socket, 226, "Transfer complete");
-  ESP_LOGD(TAG, "start_file_download - Transfer complete");
+    if (bytes_received < 0) {
+        ESP_LOGE(TAG, "start_file_upload - Error receiving data: %d", errno);
+        send_response(client_socket, 451, "Error during file upload.");
+    } else {
+        ESP_LOGI(TAG, "start_file_upload - File uploaded successfully to: %s", full_path.c_str());
+        send_response(client_socket, 226, "File transfer complete.");
+    }
 }
 
-bool FTPServer::is_running() const {
-    return ftp_server_socket_ != -1;
+void FTPServer::start_file_download(int client_socket, const std::string& full_path) {
+    int data_socket = open_data_connection(client_socket);
+    if (data_socket < 0) {
+        ESP_LOGE(TAG, "start_file_download - Can't open data connection");
+        send_response(client_socket, 425, "Can't open data connection");
+        return;
+    }
+
+    FILE *file = fopen(full_path.c_str(), "rb");
+    if (file == nullptr) {
+        ESP_LOGE(TAG, "start_file_download - Failed to open file for reading: %s, errno: %d", full_path.c_str(), errno);
+        send_response(client_socket, 550, "File not found.");
+        close(data_socket);
+        close_data_connection(client_socket);
+        return;
+    }
+
+    char buffer[512];
+    size_t bytes_read;
+
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        send(data_socket, buffer, bytes_read, 0);
+    }
+
+    fclose(file);
+    close(data_socket);
+    close_data_connection(client_socket);
+
+    if (bytes_read == 0 && ferror(file)) {
+        ESP_LOGE(TAG, "start_file_download - Error reading data: %d", errno);
+        send_response(client_socket, 451, "Error during file download.");
+    } else {
+        ESP_LOGI(TAG, "start_file_download - File downloaded successfully from: %s", full_path.c_str());
+        send_response(client_socket, 226, "File transfer complete.");
+    }
 }
 
 }  // namespace ftp_server
 }  // namespace esphome
+
 
 
 
