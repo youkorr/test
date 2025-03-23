@@ -36,7 +36,7 @@ void SambaServer::dump_config() {
 }
 
 void SambaServer::register_web_handlers() {
-  auto *server = this->base_->get_server();
+  auto server = this->base_->get_server();
   
   // Register the control interface URLs using the correct namespace
   server->on("/samba/status", web_server_idf::HTTP_GET, 
