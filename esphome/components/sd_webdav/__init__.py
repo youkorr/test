@@ -7,14 +7,14 @@ DEPENDENCIES = ['web_server']
 AUTO_LOAD = ['web_server']
 
 webdav_ns = cg.esphome_ns.namespace('webdav')
-WebDAVComponent = webdav_ns.class_('WebDAVComponent', cg.Component, web_server.WebServerHandler)
+WebDAVComponent = webdav_ns.class_('WebDAVComponent', cg.Component, web_server.AsyncWebHandler)
 
 CONF_MOUNT_POINT = 'mount_point'
 CONF_SD_CARD_ID = 'sd_card_id'
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(WebDAVComponent),
-    cv.Required(CONF_SD_CARD_ID): cv.use_id(cg.global_ns.class_("SDMMCCard")),  # Utilisation correcte de SDMMCCard
+    cv.Required(CONF_SD_CARD_ID): cv.use_id(cg.global_ns.class_("SDMMCCard")),
     cv.Optional(CONF_MOUNT_POINT, default="/sdcard"): cv.string,
     cv.Optional(CONF_USERNAME, default=""): cv.string,
     cv.Optional(CONF_PASSWORD, default=""): cv.string,
@@ -31,7 +31,8 @@ async def to_code(config):
     cg.add(var.set_password(config[CONF_PASSWORD]))
 
     web_server_instance = await cg.get_variable("web_server")
-    cg.add(web_server_instance.add_handler(var))
+    cg.add(web_server_instance.register_handler(var))
+
 
 
 
