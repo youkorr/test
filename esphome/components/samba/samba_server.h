@@ -1,46 +1,46 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include "esp_err.h"
-#include "esp_vfs.h"
-#include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
-#include "driver/sdmmc_host.h"
-#include "driver/sdmmc_types.h"
-#include "esp_http_server.h"
-#include <string>
 #include "../sd_mmc_card/sd_mmc_card.h"
+#include <string>
+#include <vector>
 
 namespace esphome {
-namespace samba_server {
+namespace samba {
 
-class SambaServer : public Component {
+class SambaComponent : public Component {
  public:
   void setup() override;
-  void loop() override;
+  void dump_config() override;
 
+  // Setters pour les options de configuration
   void set_workgroup(const std::string &workgroup) { workgroup_ = workgroup; }
-  void set_share_name(const std::string &share_name) { share_name_ = share_name; }
+  void set_root_path(const std::string &root_path) { root_path_ = root_path; }
+  void set_local_master(bool local_master) { local_master_ = local_master; }
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
-  void set_root_path(const std::string &root_path) { root_path_ = root_path; }
-  void set_sd_mmc_card(esphome::sd_mmc_card::SdMmc *card) { sd_card_ = card; }
+  void add_enabled_share(const std::string &share) { enabled_shares_.push_back(share); }
+  void add_allowed_host(const std::string &host) { allow_hosts_.push_back(host); }
+
+  // Configuration de la carte SD
+  void set_sd_mmc_card(sd_mmc_card::SdMmc *card) { sd_card_ = card; }
 
  private:
-  std::string workgroup_{"WORKGROUP"};
-  std::string share_name_{"ESP32"};
-  std::string username_{"esp32"};
-  std::string password_{"password"};
-  std::string root_path_{"/sdcard"};
+  std::string workgroup_;
+  std::string root_path_;
+  bool local_master_;
+  std::string username_;
+  std::string password_;
+  std::vector<std::string> enabled_shares_;
+  std::vector<std::string> allow_hosts_;
 
-  esphome::sd_mmc_card::SdMmc *sd_card_{nullptr};
-  httpd_handle_t server_{nullptr};
+  sd_mmc_card::SdMmc *sd_card_;
 
-  esp_err_t start_http_server();
-  bool initialize_sd_card();
+  // Méthodes internes
+  void configure_samba();
 };
 
-}  // namespace samba_server
+}  // namespace samba
 }  // namespace esphome
 
 
