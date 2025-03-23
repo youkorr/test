@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 File Server</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .primary {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .secondary {
+            background-color: #f44336;
+            color: white;
+        }
+        .neutral {
+            background-color: #2196F3;
+            color: white;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .running {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .stopped {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+        .tab.active {
+            border-bottom: 2px solid #4CAF50;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ESP32 File Server</h1>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="openTab('file-browser')">File Browser</div>
+            <div class="tab" onclick="openTab('samba')">Samba</div>
+            <div class="tab" onclick="openTab('settings')">Settings</div>
+        </div>
+        
+        <div id="file-browser" class="tab-content active">
+            <div class="card">
+                <div class="card-header">File Browser</div>
+                <p>Browse and manage your files on the SD card.</p>
+                <div class="button-group">
+                    <button class="neutral" onclick="window.location.href='/files'">Open File Browser</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="samba" class="tab-content">
+            <div class="card">
+                <div class="card-header">Samba Server</div>
+                <p>Access your SD card via Windows File Explorer or macOS Finder.</p>
+                <div id="samba-status" class="status">Checking status...</div>
+                <div class="button-group">
+                    <button id="startBtn" class="primary" onclick="startSamba()">Start Samba Server</button>
+                    <button id="stopBtn" class="secondary" onclick="stopSamba()">Stop Samba Server</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">Connection Details</div>
+                <p>To connect to the Samba share:</p>
+                <ul id="connection-details">
+                    <li>Loading connection details...</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div id="settings" class="tab-content">
+            <div class="card">
+                <div class="card-header">Settings</div>
+                <p>Configure file server settings.</p>
+                <form id="settings-form">
+                    <div>
+                        <label for="share-name">Samba Share Name:</label>
+                        <input type="text" id="share-name" name="share-name">
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label for="root-path">Root Path:</label>
+                        <input type="text" id="root-path" name="root-path">
+                    </div>
+                    <div class="button-group">
+                        <button type="submit" class="primary">Save Settings</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab functionality
+        function openTab(tabName) {
+            const tabs = document.getElementsByClassName('tab');
+            const tabContents = document.getElementsByClassName('tab-content');
+            
+            for (let i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove('active');
+            }
+            
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove('active');
+            }
+            
+            document.getElementById(tabName).classList.add('active');
+            document.querySelector(`.tab:nth-child(${['file-browser', 'samba', 'settings'].indexOf(tabName) + 1})`).classList.add('active');
+        }
+        
+        // Samba server status
+        function updateSambaStatus() {
+            fetch('/samba/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusElem = document.getElementById('samba-status');
+                    if (data.running) {
+                        statusElem.textContent = 'Status: Running';
+                        statusElem.className = 'status running';
+                        document.getElementById('startBtn').disabled = true;
+                        document.getElementById('stopBtn').disabled = false;
+                    } else {
+                        statusElem.textContent = 'Status: Stopped';
+                        statusElem.className = 'status stopped';
+                        document.getElementById('startBtn').disabled = false;
+                        document.getElementById('stopBtn').disabled = true;
+                    }
+                    
+                    // Update form fields
+                    document.getElementById('share-name').value = data.share_name;
+                    document.getElementById('root-path').value = data.root_path;
+                    
+                    // Update connection details
+                    const detailsElem = document.getElementById('connection-details');
+                    detailsElem.innerHTML = `
+                        <li>Share name: <strong>\\\\${window.location.hostname}\\${data.share_name}</strong></li>
+                        <li>For Windows: Enter <strong>\\\\${window.location.hostname}</strong> in File Explorer</li>
+                        <li>For macOS: In Finder, choose Go > Connect to Server and enter <strong>smb://${window.location.hostname}</strong></li>
+                    `;
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                });
+        }
+        
+        function startSamba() {
+            fetch('/samba/start', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    updateSambaStatus();
+                });
+        }
+        
+        function stopSamba() {
+            fetch('/samba/stop', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    updateSambaStatus();
+                });
+        }
+        
+        // Settings form
+        document.getElementById('settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = {
+                share_name: formData.get('share-name'),
+                root_path: formData.get('root-path')
+            };
+            
+            fetch('/samba/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert('Settings saved successfully!');
+                updateSambaStatus();
+            })
+            .catch(error => {
+                alert('Error saving settings');
+                console.error('Error:', error);
+            });
+        });
+        
+        // Initialize
+        updateSambaStatus();
+        setInterval(updateSambaStatus, 5000);
+    </script>
+</body>
+</html>
