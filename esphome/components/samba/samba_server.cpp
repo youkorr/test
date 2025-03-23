@@ -14,7 +14,7 @@ static int smb_socket = -1;
 void SambaComponent::setup() {
   ESP_LOGI(TAG, "Setting up Samba server...");
   
-  if (sd_card_ == nullptr) {
+  if (sd_mmc_card_ == nullptr) {
     ESP_LOGE(TAG, "SD card is not initialized!");
     return;
   }
