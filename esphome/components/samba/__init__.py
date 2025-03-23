@@ -22,7 +22,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SHARE_NAME, default='ESP32'): cv.string,
     cv.Optional(CONF_USERNAME, default='esp32'): cv.string,
     cv.Optional(CONF_PASSWORD, default='password'): cv.string,
-    cv.Required(CONF_ROOT_PATH, default='/sdcard'): cv.string,
+    cv.Optional(CONF_ROOT_PATH, default='/sdcard'): cv.string,
     cv.Required(CONF_SD_MMC_CARD): cv.use_id(sd_mmc_card.SdMmc),
 }).extend(cv.COMPONENT_SCHEMA)
 
@@ -38,6 +38,7 @@ async def to_code(config):
     
     sd_card = await cg.get_variable(config[CONF_SD_MMC_CARD])
     cg.add(var.set_sd_mmc_card(sd_card))
+
 
 
 
