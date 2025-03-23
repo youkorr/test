@@ -11,7 +11,7 @@ namespace samba {
 class SambaComponent : public Component {
  public:
   void setup() override;
-  void set_sd_card(sd_card::SDCard *sd_card) { this->sd_card_ = sd_card; }
+  void set_sd_mmc_card(sd_mmc_card::SdMmc *);
   void add_allowed_host(const std::string &host) { this->allow_hosts_.push_back(host); }
   
   // Ajout des déclarations de méthodes manquantes
@@ -20,7 +20,7 @@ class SambaComponent : public Component {
 
  protected:
   void configure_samba();
-  sd_card::SDCard *sd_card_{nullptr};
+  sd_mmc_card::SdMmc *sd_mmc_card_;
   std::vector<std::string> allow_hosts_{};
 };
 
