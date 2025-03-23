@@ -13,7 +13,7 @@ class SDWebDAVComponent : public Component {
   void loop() override;
   void dump_config() override;
   
-  void set_sd_card(sd_mmc_card::SDMMCCard *sd_card) { sd_card_ = sd_card; }
+  void set_sd_card(sd_mmc_card::SdMmc *sd_card) { sd_card_ = sd_card; }
   void set_mount_point(const std::string &mount_point) { mount_point_ = mount_point; }
   void set_credentials(const std::string &username, const std::string &password) {
     username_ = username;
@@ -21,7 +21,7 @@ class SDWebDAVComponent : public Component {
   }
 
  protected:
-  sd_mmc_card::SDMMCCard *sd_card_;
+  sd_mmc_card::SdMmc *sd_card_;
   std::string mount_point_;
   std::string username_;
   std::string password_;
@@ -31,6 +31,7 @@ class SDWebDAVComponent : public Component {
 
 }  // namespace sd_webdav
 }  // namespace esphome
+
 
 
 
