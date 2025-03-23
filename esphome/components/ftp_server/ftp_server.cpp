@@ -542,7 +542,7 @@ bool FTPServer::start_passive_mode(int client_socket) {
 
   struct sockaddr_in sin;
   socklen_t len = sizeof(sin);
-  if (getsockname(passive_data_socket_, (struct sockaddr *)&sin, &len)) < 0) {
+  if (getsockname(passive_data_socket_, (struct sockaddr *)&sin, &len) < 0) {
     ESP_LOGE(TAG, "Failed to get socket name (errno: %d)", errno);
     close(passive_data_socket_);
     passive_data_socket_ = -1;
