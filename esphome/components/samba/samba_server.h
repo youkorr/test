@@ -19,19 +19,10 @@ class SambaServer : public Component, public web_server_idf::AsyncWebHandler {
   bool canHandle(web_server_idf::AsyncWebServerRequest *request) override;
   void handleRequest(web_server_idf::AsyncWebServerRequest *request) override;
   
-  // Méthodes d'accès aux membres
-  bool is_running() const { return is_running_; }
-  const std::string& get_share_name() const { return share_name_; }
-  const std::string& get_root_path() const { return root_path_; }
-  
   // Configuration
   void set_share_name(const std::string &name);
   void set_root_path(const std::string &path);
   void set_sd_mmc_card(sd_mmc_card::SdMmc *card);
-  
-  // Gestion des handlers web
-  void register_web_handlers();
-  void handle_ui(web_server_idf::AsyncWebServerRequest *request);
   
   // Gestion du serveur Samba
   void init_samba_server();
