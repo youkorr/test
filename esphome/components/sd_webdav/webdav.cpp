@@ -21,12 +21,12 @@ void SDWebDAVComponent::setup() {
   }
   
   // Set up WebDAV routes
-  web_server_->add_handler("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
+  web_server_->on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "WebDAV Server Running");
   });
   
   // Start server
-  web_server_->begin();
+  web_server_->start();
 }
 
 void SDWebDAVComponent::loop() {
@@ -40,5 +40,6 @@ void SDWebDAVComponent::dump_config() {
 
 }  // namespace sd_webdav
 }  // namespace esphome
+
 
 
