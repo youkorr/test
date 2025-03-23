@@ -23,6 +23,10 @@ class Box3Web : public Component, public AsyncWebHandler {
   void set_deletion_enabled(bool);
   void set_download_enabled(bool);
   void set_upload_enabled(bool);
+  void connect_sd();
+  void disconnect_sd();
+  bool is_connected() const { return connected_; }
+
  protected:
   web_server_base::WebServerBase *base_;
   sd_mmc_card::SdMmc *sd_mmc_card_;
@@ -31,14 +35,17 @@ class Box3Web : public Component, public AsyncWebHandler {
   bool deletion_enabled_;
   bool download_enabled_;
   bool upload_enabled_;
+  bool connected_{false};
   std::string build_prefix() const;
   std::string extract_path_from_url(std::string const &) const;
   std::string build_absolute_path(std::string) const;
   void write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const;
   void handle_index(AsyncWebServerRequest *, std::string const &) const;
   void handle_get(AsyncWebServerRequest *) const;
+  void handle_post(AsyncWebServerRequest *);
   void handle_delete(AsyncWebServerRequest *);
   void handle_download(AsyncWebServerRequest *, std::string const &) const;
+  void handle_connection(AsyncWebServerRequest *request, bool connect);
 };
 
 struct Path {
