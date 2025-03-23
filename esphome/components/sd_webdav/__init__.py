@@ -14,7 +14,7 @@ SDWebDAVComponent = sd_webdav_ns.class_('SDWebDAVComponent', cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(SDWebDAVComponent),
-    cv.Required(CONF_SD_CARD_ID): cv.use_id(cg.esphome_ns.SDCard),
+    cv.Required(CONF_SD_CARD_ID): cv.use_id(cg.esphome_ns.SDMMCCard),
     cv.Required(CONF_MOUNT_POINT): cv.string,
     cv.Optional(CONF_USERNAME, default=''): cv.string,
     cv.Optional(CONF_PASSWORD, default=''): cv.string,
@@ -31,3 +31,4 @@ def to_code(config):
         config[CONF_USERNAME],
         config[CONF_PASSWORD]
     ))
+
