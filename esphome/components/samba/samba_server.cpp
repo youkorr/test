@@ -1,49 +1,48 @@
-#include "samba_server.h"
+#include "web_server.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
-namespace samba {
+namespace samba_server {
 
-static const char *TAG = "samba";
+static const char *TAG = "samba_web_server";
 
-void SambaComponent::setup() {
-  ESP_LOGI(TAG, "Setting up Samba server...");
+void WebServer::setup() {
+  ESP_LOGCONFIG(TAG, "Setting up Web Server...");
   
-  if (sd_card_ == nullptr) {
-    ESP_LOGE(TAG, "SD card is not initialized!");
-    return;
-  }
-
-  // Configure Samba avec les paramètres fournis
-  this->configure_samba();
-}
-
-void SambaComponent::configure_samba() {
-  ESP_LOGI(TAG, "Workgroup: %s", this->workgroup_.c_str());
-  ESP_LOGI(TAG, "Root path: %s", this->root_path_.c_str());
-  ESP_LOGI(TAG, "Local master: %s", this->local_master_ ? "true" : "false");
+  server_.on("/list", HTTP_GET, std::bind(&WebServer::handle_list_directory, this, std::placeholders::_1));
+  server_.on("/download", HTTP_GET, std::bind(&WebServer::handle_download_file, this, std::placeholders::_1));
+  server_.on("/upload", HTTP_POST, std::bind(&WebServer::handle_upload_file, this, std::placeholders::_1));
+  server_.on("/delete", HTTP_POST, std::bind(&WebServer::handle_delete_file, this, std::placeholders::_1));
+  server_.on("/rename", HTTP_POST, std::bind(&WebServer::handle_rename_file, this, std::placeholders::_1));
   
-  // Exemple de configuration des partages activés
-  for (const auto &share : this->enabled_shares_) {
-    ESP_LOGI(TAG, "Enabled share: %s", share.c_str());
-    // Ajoutez ici la logique pour configurer chaque partage Samba.
-  }
-
-  // Exemple de configuration des hôtes autorisés
-  for (const auto &host : this->allow_hosts_) {
-    ESP_LOGI(TAG, "Allowed host: %s", host.c_str());
-    // Ajoutez ici la logique pour autoriser chaque hôte.
-  }
-
-  ESP_LOGI(TAG, "Samba server configured successfully.");
+  server_.begin();
 }
 
-void SambaComponent::dump_config() {
-  ESP_LOGCONFIG(TAG, "Samba Component:");
-  ESP_LOGCONFIG(TAG, "Workgroup: %s", this->workgroup_.c_str());
-  ESP_LOGCONFIG(TAG, "Root path: %s", this->root_path_.c_str());
+void WebServer::loop() {
+  // The AsyncWebServer doesn't need a loop method
 }
 
-}  // namespace samba
+void WebServer::handle_list_directory(AsyncWebServerRequest *request) {
+  // TODO: Implement directory listing
+}
+
+void WebServer::handle_download_file(AsyncWebServerRequest *request) {
+  // TODO: Implement file download
+}
+
+void WebServer::handle_upload_file(AsyncWebServerRequest *request) {
+  // TODO: Implement file upload
+}
+
+void WebServer::handle_delete_file(AsyncWebServerRequest *request) {
+  // TODO: Implement file/directory deletion
+}
+
+void WebServer::handle_rename_file(AsyncWebServerRequest *request) {
+  // TODO: Implement file/directory renaming
+}
+
+}  // namespace samba_server
 }  // namespace esphome
+
 
