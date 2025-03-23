@@ -8,6 +8,12 @@
 #include "esp_netif.h"
 #include "lwip/apps/netbiosns.h"
 
+// Déclarations préliminaires des fonctions des handlers
+esp_err_t status_handler(httpd_req_t *req);
+esp_err_t start_handler(httpd_req_t *req);
+esp_err_t stop_handler(httpd_req_t *req);
+esp_err_t samba_ui_handler(httpd_req_t *req);
+
 namespace esphome {
 namespace samba {
 
@@ -18,7 +24,7 @@ SambaServer::SambaServer(web_server_base::WebServerBase *base) : base_(base) {}
 
 void SambaServer::setup() {
   ESP_LOGCONFIG(TAG, "Setting up Samba Server...");
-  this->base_->add_handler(static_cast<web_server_idf::AsyncWebHandler*>(this));
+  this->base_->add_handler(static_cast<web_server_base::WebServerHandler*>(this));
   this->register_web_handlers();
   this->init_samba_server();
 }
@@ -26,13 +32,13 @@ void SambaServer::setup() {
 void SambaServer::dump_config() {
   ESP_LOGCONFIG(TAG, "Samba Server:");
   ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), this->base_->get_port());
-  ESP_LOGCONFIG(TAG, "  Share Name: %s", this->share_name_.c_str());
-  ESP_LOGCONFIG(TAG, "  Root Path: %s", this->root_path_.c_str());
-  ESP_LOGCONFIG(TAG, "  Status: %s", this->is_running_ ? "Running" : "Stopped");
+  ESP_LOGCONFIG(TAG, "  Share Name: %s", this->get_share_name().c_str());
+  ESP_LOGCONFIG(TAG, "  Root Path: %s", this->get_root_path().c_str());
+  ESP_LOGCONFIG(TAG, "  Status: %s", this->is_running() ? "Running" : "Stopped");
 }
 
 void SambaServer::register_web_handlers() {
-  auto server = this->base_->get_server();
+  auto httpd = this->base_->get_httpd(); // Obtenir le handle HTTPD via la base
 
   // Définition des handlers pour chaque endpoint
   httpd_uri_t status_uri = {
@@ -41,7 +47,7 @@ void SambaServer::register_web_handlers() {
     .handler   = status_handler,
     .user_ctx  = this
   };
-  httpd_register_uri_handler(server->get_httpd(), &status_uri);
+  httpd_register_uri_handler(httpd, &status_uri);
 
   httpd_uri_t start_uri = {
     .uri       = "/samba/start",
@@ -49,7 +55,7 @@ void SambaServer::register_web_handlers() {
     .handler   = start_handler,
     .user_ctx  = this
   };
-  httpd_register_uri_handler(server->get_httpd(), &start_uri);
+  httpd_register_uri_handler(httpd, &start_uri);
 
   httpd_uri_t stop_uri = {
     .uri       = "/samba/stop",
@@ -57,7 +63,7 @@ void SambaServer::register_web_handlers() {
     .handler   = stop_handler,
     .user_ctx  = this
   };
-  httpd_register_uri_handler(server->get_httpd(), &stop_uri);
+  httpd_register_uri_handler(httpd, &stop_uri);
 
   httpd_uri_t samba_uri = {
     .uri       = "/samba",
@@ -65,7 +71,7 @@ void SambaServer::register_web_handlers() {
     .handler   = samba_ui_handler,
     .user_ctx  = this
   };
-  httpd_register_uri_handler(server->get_httpd(), &samba_uri);
+  httpd_register_uri_handler(httpd, &samba_uri);
 }
 
 // Handler pour "/samba/status"
@@ -73,9 +79,9 @@ esp_err_t status_handler(httpd_req_t *req) {
   SambaServer *server = (SambaServer*) req->user_ctx;
   char buffer[256];
   snprintf(buffer, sizeof(buffer), "{\"running\": %s, \"share_name\": \"%s\", \"root_path\": \"%s\"}",
-           server->is_running_ ? "true" : "false",
-           server->share_name_.c_str(),
-           server->root_path_.c_str());
+           server->is_running() ? "true" : "false",
+           server->get_share_name().c_str(),
+           server->get_root_path().c_str());
   httpd_resp_send(req, buffer, HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }
@@ -83,14 +89,14 @@ esp_err_t status_handler(httpd_req_t *req) {
 // Handler pour "/samba/start"
 esp_err_t start_handler(httpd_req_t *req) {
   SambaServer *server = (SambaServer*) req->user_ctx;
-  if (server->is_running_) {
+  if (server->is_running()) {
     httpd_resp_send(req, "{\"status\": \"already_running\"}", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
   }
   if (server->start_samba_server()) {
     httpd_resp_send(req, "{\"status\": \"started\"}", HTTPD_RESP_USE_STRLEN);
   } else {
-    httpd_resp_send_err(req, HTTP_INTERNAL_SERVER_ERROR, "Failed to start Samba server");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to start Samba server");
   }
   return ESP_OK;
 }
@@ -98,14 +104,14 @@ esp_err_t start_handler(httpd_req_t *req) {
 // Handler pour "/samba/stop"
 esp_err_t stop_handler(httpd_req_t *req) {
   SambaServer *server = (SambaServer*) req->user_ctx;
-  if (!server->is_running_) {
+  if (!server->is_running()) {
     httpd_resp_send(req, "{\"status\": \"not_running\"}", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
   }
   if (server->stop_samba_server()) {
-    httpd_resp_send(req, "{\"status\": \"stopped\"}", HTTPD_RESP_USE_STR_LEN);
+    httpd_resp_send(req, "{\"status\": \"stopped\"}", HTTPD_RESP_USE_STRLEN);
   } else {
-    httpd_resp_send_err(req, HTTP_INTERNAL_SERVER_ERROR, "Failed to stop Samba server");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to stop Samba server");
   }
   return ESP_OK;
 }
@@ -172,7 +178,7 @@ void SambaServer::init_samba_server() {
 }
 
 bool SambaServer::start_samba_server() {
-  if (this->is_running_) {
+  if (this->is_running()) {
     ESP_LOGW(TAG, "Samba server already running");
     return true;
   }
@@ -194,7 +200,7 @@ bool SambaServer::start_samba_server() {
 }
 
 bool SambaServer::stop_samba_server() {
-  if (!this->is_running_) {
+  if (!this->is_running()) {
     ESP_LOGW(TAG, "Samba server not running");
     return true;
   }
