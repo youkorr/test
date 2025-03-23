@@ -1,8 +1,14 @@
 #pragma once
 
-#include "esphome/core/component.h"
+#include "esp_err.h"
+#include "esp_vfs.h"
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+#include "driver/sdmmc_host.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <string>
 #include "../sd_mmc_card/sd_mmc_card.h"
-#include "web_server.h"
 
 namespace esphome {
 namespace samba_server {
@@ -16,20 +22,25 @@ class SambaServer : public Component {
   void set_share_name(const std::string &share_name) { share_name_ = share_name; }
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
-  void set_sd_mmc_card(sd_mmc_card::SdMmc *card) { sd_mmc_card_ = card; }
+  void set_root_path(const std::string &root_path) { root_path_ = root_path; }
+  void set_sd_mmc_card(sdmmc_card_t *card) { sd_card_ = card; }
 
  protected:
   std::string workgroup_{"WORKGROUP"};
   std::string share_name_{"ESP32"};
   std::string username_{"esp32"};
   std::string password_{"password"};
+  std::string root_path_{"/sdcard"};
   
-  sd_mmc_card::SdMmc *sd_mmc_card_{nullptr};
-  std::unique_ptr<WebServer> web_server_;
+  sdmmc_card_t *sd_card_{nullptr};
+  TaskHandle_t samba_task_handle_{nullptr};
+
+  void samba_task(void *pvParameters);
 };
 
 }  // namespace samba_server
 }  // namespace esphome
+
 
 
 
