@@ -1,38 +1,31 @@
 #pragma once
+#include "esphome.h"
+#include <AsyncWebServer_ESP32_SC_W5500.h>
+#include <ESPAsyncWebDav.h>
+#include "../sd_mmc_card/sd_mmc_card.h"
 
-#include <AsyncWebServer.h>
-#include <SD.h>
-#include <SPI.h>
-#include <esphome/core/component.h>
-#include <esphome/components/sdcard/sdcard.h>
+namespace esphome {
+namespace sd_webdav {
 
-namespace webdav {
-
-class WebDAV : public esphome::Component {
+class SDWebDAV : public Component {
  public:
-  WebDAV(esphome::sdcard::SDCardComponent *sd_card, const char *mount_point, const char *username, const char *password)
-      : sd_card_(sd_card), mount_point_(mount_point), username_(username), password_(password) {}
+  void set_sd_card(sdmc::SDMmcCard *sd_card) { sd_card_ = sd_card; }
+  void set_mount_point(const std::string &mount_point) { mount_point_ = mount_point; }
+  void set_username(const std::string &username) { username_ = username; }
+  void set_password(const std::string &password) { password_ = password; }
 
-  static WebDAV *create(esphome::sdcard::SDCardComponent *sd_card, const char *mount_point, const char *username, const char *password) {
-    WebDAV *webdav = new WebDAV(sd_card, mount_point, username, password);
-    webdav->setup();
-    return webdav;
-  }
-
-  void setup() override {
-    AsyncWebServer server(80);
-    server.on("/sdcard/*", HTTP_GET, [this](AsyncWebServerRequest *request) {
-      // Implémentation de la requête GET
-      request->send(200, "text/plain", "WebDAV not fully implemented yet");
-    });
-    server.begin();
-  }
+  void setup() override;
+  void loop() override;
 
  protected:
-  esphome::sdcard::SDCardComponent *sd_card_;
-  const char *mount_point_;
-  const char *username_;
-  const char *password_;
+  sdmc::SDMmcCard *sd_card_;
+  std::string mount_point_;
+  std::string username_;
+  std::string password_;
+  AsyncWebServer *server_{nullptr};
+  AsyncWebdav *dav_{nullptr};
 };
 
-}  // namespace webdav
+}  // namespace sd_webdav
+}  // namespace esphome
+
