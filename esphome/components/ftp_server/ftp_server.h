@@ -64,6 +64,10 @@ class FTPServer : public Component {
   bool start_passive_mode(int client_socket);
   int open_data_connection(int client_socket);
   void close_data_connection(int client_socket);
+
+  // Ajout des déclarations des fonctions ici
+  std::string normalize_path(const std::string& path);
+  std::string construct_path(const std::string& root, const std::string& current, const std::string& requested);
 };
 
 }  // namespace ftp_server
