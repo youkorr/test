@@ -10,9 +10,7 @@ static const char *TAG = "box3web";
 
 Box3Web::Box3Web(web_server_base::WebServerBase *base) : base_(base) {}
 
-void Box3Web::setup() { 
-  this->base_->add_handler(this);
-}
+void Box3Web::setup() { this->base_->add_handler(this); }
 
 void Box3Web::dump_config() {
   ESP_LOGCONFIG(TAG, "Box3Web:");
@@ -41,10 +39,6 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
       this->handle_delete(request);
       return;
     }
-    if (request->method() == HTTP_POST) {
-      this->handle_post(request);
-      return;
-    }
   }
 }
 
@@ -54,12 +48,6 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
     request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
     return;
   }
-  
-  if (!this->is_connected()) {
-    request->send(401, "application/json", "{ \"error\": \"SD card not connected\" }");
-    return;
-  }
-  
   std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
   std::string path = this->build_absolute_path(extracted);
 
@@ -96,39 +84,7 @@ void Box3Web::set_download_enabled(bool allow) { this->download_enabled_ = allow
 
 void Box3Web::set_upload_enabled(bool allow) { this->upload_enabled_ = allow; }
 
-void Box3Web::connect_sd() {
-  if (!this->connected_) {
-    if (this->sd_mmc_card_->mount()) {
-      this->connected_ = true;
-      ESP_LOGI(TAG, "SD card connected");
-    } else {
-      ESP_LOGE(TAG, "Failed to connect SD card");
-    }
-  }
-}
-
-void Box3Web::disconnect_sd() {
-  if (this->connected_) {
-    this->sd_mmc_card_->unmount();
-    this->connected_ = false;
-    ESP_LOGI(TAG, "SD card disconnected");
-  }
-}
-
 void Box3Web::handle_get(AsyncWebServerRequest *request) const {
-  // Special case for connect/disconnect status
-  if (request->url() == this->build_prefix() + "/status") {
-    AsyncResponseStream *response = request->beginResponseStream("application/json");
-    response->printf("{ \"connected\": %s }", this->is_connected() ? "true" : "false");
-    request->send(response);
-    return;
-  }
-
-  if (!this->is_connected()) {
-    handle_index(request, "");
-    return;
-  }
-
   std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
   std::string path = this->build_absolute_path(extracted);
 
@@ -138,46 +94,6 @@ void Box3Web::handle_get(AsyncWebServerRequest *request) const {
   }
 
   handle_index(request, path);
-}
-
-void Box3Web::handle_post(AsyncWebServerRequest *request) {
-  std::string url(request->url().c_str());
-  
-  if (url == this->build_prefix() + "/connect") {
-    handle_connection(request, true);
-    return;
-  }
-  
-  if (url == this->build_prefix() + "/disconnect") {
-    handle_connection(request, false);
-    return;
-  }
-  
-  request->send(400, "application/json", "{ \"error\": \"unknown post request\" }");
-}
-
-void Box3Web::handle_connection(AsyncWebServerRequest *request, bool connect) {
-  if (connect) {
-    if (this->is_connected()) {
-      request->send(200, "application/json", "{ \"status\": \"already connected\" }");
-      return;
-    }
-    
-    this->connect_sd();
-    if (this->is_connected()) {
-      request->send(200, "application/json", "{ \"status\": \"connected\" }");
-    } else {
-      request->send(500, "application/json", "{ \"error\": \"failed to connect SD card\" }");
-    }
-  } else {
-    if (!this->is_connected()) {
-      request->send(200, "application/json", "{ \"status\": \"already disconnected\" }");
-      return;
-    }
-    
-    this->disconnect_sd();
-    request->send(200, "application/json", "{ \"status\": \"disconnected\" }");
-  }
 }
 
 void Box3Web::write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const {
@@ -215,89 +131,33 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
   AsyncResponseStream *response = request->beginResponseStream("text/html");
   response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8><meta "
                     "name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
-                    "<style>"
-                    "body { font-family: Arial, sans-serif; margin: 20px; }"
-                    ".actions { margin: 20px 0; }"
-                    ".status { font-weight: bold; margin-bottom: 10px; }"
-                    ".btn { padding: 8px 16px; margin-right: 10px; cursor: pointer; }"
-                    "table { border-collapse: collapse; width: 100%; }"
-                    "th, td { border: 1px solid #ddd; padding: 8px; }"
-                    "th { background-color: #f2f2f2; }"
-                    "</style>"
                     "</head><body>"
-                    "<h1>SD Card File Browser</h1>"));
+                    "<h1>SD Card Content</h1><h2>Folder "));
 
-  // Connection status and buttons
-  response->print(F("<div class=\"status\" id=\"connectionStatus\">Status: "));
-  if (this->is_connected()) {
-    response->print(F("Connected"));
-  } else {
-    response->print(F("Disconnected"));
-  }
-  response->print(F("</div><div class=\"actions\">"));
-  
-  if (!this->is_connected()) {
-    response->print(F("<button class=\"btn\" onclick=\"connectSD()\">Connect SD Card</button>"));
-  } else {
-    response->print(F("<button class=\"btn\" onclick=\"disconnectSD()\">Disconnect SD Card</button>"));
-  }
-  
-  response->print(F("</div>"));
+  response->print(path.c_str());
+  response->print(F("</h2>"));
+  if (this->upload_enabled_)
+    response->print(F("<form method=\"POST\" enctype=\"multipart/form-data\">"
+                      "<input type=\"file\" name=\"file\"><input type=\"submit\" value=\"upload\"></form>"));
+  response->print(F("<a href=\"/"));
+  response->print(this->url_prefix_.c_str());
+  response->print(F("\">Home</a></br></br><table id=\"files\"><thead><tr><th>Name<th>Actions<tbody>"));
+  auto entries = this->sd_mmc_card_->list_directory_file_info(path, 0);
+  for (auto const &entry : entries)
+    write_row(response, entry);
 
-  if (this->is_connected()) {
-    response->print(F("<h2>Folder "));
-    response->print(path.c_str());
-    response->print(F("</h2>"));
-    
-    if (this->upload_enabled_)
-      response->print(F("<form method=\"POST\" enctype=\"multipart/form-data\">"
-                        "<input type=\"file\" name=\"file\"><input type=\"submit\" value=\"Upload\"></form>"));
-    
-    response->print(F("<a href=\"/"));
-    response->print(this->url_prefix_.c_str());
-    response->print(F("\">Home</a></br></br><table id=\"files\"><thead><tr><th>Name<th>Actions<tbody>"));
-    
-    auto entries = this->sd_mmc_card_->list_directory_file_info(path, 0);
-    for (auto const &entry : entries)
-      write_row(response, entry);
-    
-    response->print(F("</tbody></table>"));
-  } else {
-    response->print(F("<div>SD card is not connected. Please connect to access files.</div>"));
-  }
-
-  response->print(F("<script>"
-                    "function delete_file(path) {"
-                    "  if(confirm('Are you sure you want to delete this file?')) {"
-                    "    fetch(path, {method: 'DELETE'})"
-                    "      .then(response => { if(response.ok) location.reload(); });"
-                    "  }"
-                    "}"
+  response->print(F("</tbody></table>"
+                    "<script>"
+                    "function delete_file(path) {fetch(path, {method: \"DELETE\"});}"
                     "function download_file(path, filename) {"
-                    "  fetch(path).then(response => response.blob())"
-                    "  .then(blob => {"
-                    "    const link = document.createElement('a');"
-                    "    link.href = URL.createObjectURL(blob);"
-                    "    link.download = filename;"
-                    "    link.click();"
-                    "  }).catch(console.error);"
-                    "}"
-                    "function connectSD() {"
-                    "  fetch('"));
-  response->print(this->build_prefix().c_str());
-  response->print(F("/connect', {method: 'POST'})"
-                    "    .then(response => response.json())"
-                    "    .then(data => { location.reload(); })"
-                    "    .catch(error => console.error('Error:', error));"
-                    "}"
-                    "function disconnectSD() {"
-                    "  fetch('"));
-  response->print(this->build_prefix().c_str());
-  response->print(F("/disconnect', {method: 'POST'})"
-                    "    .then(response => response.json())"
-                    "    .then(data => { location.reload(); })"
-                    "    .catch(error => console.error('Error:', error));"
-                    "}"
+                    "fetch(path).then(response => response.blob())"
+                    ".then(blob => {"
+                    "const link = document.createElement('a');"
+                    "link.href = URL.createObjectURL(blob);"
+                    "link.download = filename;"
+                    "link.click();"
+                    "}).catch(console.error);"
+                    "} "
                     "</script>"
                     "</body></html>"));
 
@@ -307,11 +167,6 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
 void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const &path) const {
   if (!this->download_enabled_) {
     request->send(401, "application/json", "{ \"error\": \"file download is disabled\" }");
-    return;
-  }
-
-  if (!this->is_connected()) {
-    request->send(401, "application/json", "{ \"error\": \"SD card not connected\" }");
     return;
   }
 
@@ -335,12 +190,6 @@ void Box3Web::handle_delete(AsyncWebServerRequest *request) {
     request->send(401, "application/json", "{ \"error\": \"file deletion is disabled\" }");
     return;
   }
-  
-  if (!this->is_connected()) {
-    request->send(401, "application/json", "{ \"error\": \"SD card not connected\" }");
-    return;
-  }
-  
   std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
   std::string path = this->build_absolute_path(extracted);
   if (this->sd_mmc_card_->is_directory(path)) {
