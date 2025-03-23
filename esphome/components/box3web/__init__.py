@@ -13,13 +13,12 @@ CONF_ROOT_PATH = "root_path"
 CONF_ENABLE_DELETION = "enable_deletion"
 CONF_ENABLE_DOWNLOAD = "enable_download"
 CONF_ENABLE_UPLOAD = "enable_upload"
-CONF_AUTO_CONNECT = "auto_connect"
 
 AUTO_LOAD = ["web_server_base"]
 DEPENDENCIES = ["sd_mmc_card"]
 
-box3web_ns = cg.esphome_ns.namespace("box3web")
-Box3Web = box3web_ns.class_("Box3Web", cg.Component)
+Box3Web_ns = cg.esphome_ns.namespace("box3web")
+Box3Web = Box3Web_ns.class_("Box3Web", cg.Component)
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -34,7 +33,6 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ENABLE_DELETION, default=False): cv.boolean,
             cv.Optional(CONF_ENABLE_DOWNLOAD, default=False): cv.boolean,
             cv.Optional(CONF_ENABLE_UPLOAD, default=False): cv.boolean,
-            cv.Optional(CONF_AUTO_CONNECT, default=False): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA),
 )
@@ -45,7 +43,6 @@ async def to_code(config):
     
     var = cg.new_Pvariable(config[CONF_ID], paren)
     await cg.register_component(var, config)
-    
     sdmmc = await cg.get_variable(config[sd_mmc_card.CONF_SD_MMC_CARD_ID])
     cg.add(var.set_sd_mmc_card(sdmmc))
     cg.add(var.set_url_prefix(config[CONF_URL_PREFIX]))
@@ -53,11 +50,6 @@ async def to_code(config):
     cg.add(var.set_deletion_enabled(config[CONF_ENABLE_DELETION]))
     cg.add(var.set_download_enabled(config[CONF_ENABLE_DOWNLOAD]))
     cg.add(var.set_upload_enabled(config[CONF_ENABLE_UPLOAD]))
-    
-    # Auto-connect SD card if configured
-    if config[CONF_AUTO_CONNECT]:
-        cg.add_define("USE_SD_CARD_AUTO_CONNECT")
-        cg.add(var.connect_sd())
     
     cg.add_define("USE_SD_CARD_WEBSERVER")
     
