@@ -43,41 +43,6 @@ void Box3Web::handleRequest(AsyncWebServerRequest *request) {
     }
 }
 
-void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
-                            size_t len, bool final) {
-    if (!this->upload_enabled_) {
-        request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
-        return;
-    }
-
-    std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
-    std::string path = this->build_absolute_path(extracted);
-
-    // Validate upload folder
-    if (index == 0 && !this->sd_mmc_card_->is_directory(path)) {
-        request->send(401, "application/json", "{ \"error\": \"invalid upload folder\" }");
-        return;
-    }
-
-    std::string full_path = Path::join(path, std::string(filename.c_str()));
-    
-    // New upload or continuing upload
-    if (index == 0) {
-        // First chunk - create or overwrite file
-        ESP_LOGD(TAG, "Uploading file %s to %s", filename.c_str(), full_path.c_str());
-        this->sd_mmc_card_->write_file(full_path.c_str(), data, len);
-    } else {
-        // Continuing upload - append data
-        this->sd_mmc_card_->append_file(full_path.c_str(), data, len);
-    }
-
-    // Final chunk
-    if (final) {
-        auto response = request->beginResponse(201, "text/html", "upload success");
-        response->addHeader("Connection", "close");
-        request->send(response);
-    }
-}
 void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
 
 void Box3Web::set_root_path(std::string const &path) { this->root_path_ = path; }
@@ -203,26 +168,85 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
         return;
     }
 
-    auto file = this->sd_mmc_card_->read_file(path);
-    if (file.size() == 0) {
-        request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
+    // Open the file using standard file operations
+    FILE* file = fopen(path.c_str(), "rb");
+    if (!file) {
+        request->send(404, "application/json", "{ \"error\": \"file not found\" }");
         return;
     }
 
-    // Get filename for Content-Disposition
-    std::string filename = Path::file_name(path);
+    // Get file size
+    fseek(file, 0, SEEK_END);
+    size_t file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
-    // Correction : utiliser la méthode beginResponse avec un buffer
-    auto *response = request->beginResponseStream("application/octet-stream");
-    response->print(std::string(file.begin(), file.end()));
-    
-    // Add filename suggestion in download header
+    // Create a streaming response
+    AsyncWebServerResponse *response = request->beginResponse(
+        "application/octet-stream", 
+        file_size, 
+        [file](uint8_t *buffer, size_t maxLen, size_t filledLen) -> size_t {
+            // Callback to read file in chunks
+            size_t read_size = fread(buffer, 1, maxLen, file);
+            
+            // Close file when done
+            if (read_size == 0) {
+                fclose(file);
+            }
+            
+            return read_size;
+        }
+    );
+
+    // Set content disposition to suggest a filename
+    std::string filename = Path::file_name(path);
     char content_disposition[256];
     snprintf(content_disposition, sizeof(content_disposition), 
              "attachment; filename=\"%s\"", filename.c_str());
     response->addHeader("Content-Disposition", content_disposition);
 
     request->send(response);
+}
+
+void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
+                            size_t len, bool final) {
+    if (!this->upload_enabled_) {
+        request->send(401, "application/json", "{ \"error\": \"file upload is disabled\" }");
+        return;
+    }
+
+    std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
+    std::string path = this->build_absolute_path(extracted);
+
+    // Validate upload folder
+    if (index == 0 && !this->sd_mmc_card_->is_directory(path)) {
+        request->send(401, "application/json", "{ \"error\": \"invalid upload folder\" }");
+        return;
+    }
+
+    std::string full_path = Path::join(path, std::string(filename.c_str()));
+    
+    // Open file in appropriate mode
+    FILE* file = fopen(full_path.c_str(), (index == 0) ? "wb" : "ab");
+    if (!file) {
+        request->send(500, "application/json", "{ \"error\": \"cannot open file for writing\" }");
+        return;
+    }
+
+    // Write chunk of data
+    size_t written = fwrite(data, 1, len, file);
+    fclose(file);
+
+    if (written != len) {
+        request->send(500, "application/json", "{ \"error\": \"file write failed\" }");
+        return;
+    }
+
+    // Send response on final chunk
+    if (final) {
+        auto response = request->beginResponse(201, "text/html", "upload success");
+        response->addHeader("Connection", "close");
+        request->send(response);
+    }
 }
 
 void Box3Web::handle_delete(AsyncWebServerRequest *request) {
@@ -305,6 +329,7 @@ std::string Path::remove_root_path(std::string path, std::string const &root) {
 
 } // namespace box3web
 } // namespace esphome
+
 
 
 
