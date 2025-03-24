@@ -78,6 +78,17 @@ void Box3Web::handleUpload(AsyncWebServerRequest *request, const String &filenam
         request->send(response);
     }
 }
+void Box3Web::set_url_prefix(std::string const &prefix) { this->url_prefix_ = prefix; }
+
+void Box3Web::set_root_path(std::string const &path) { this->root_path_ = path; }
+
+void Box3Web::set_sd_mmc_card(sd_mmc_card::SdMmc *card) { this->sd_mmc_card_ = card; }
+
+void Box3Web::set_deletion_enabled(bool allow) { this->deletion_enabled_ = allow; }
+
+void Box3Web::set_download_enabled(bool allow) { this->download_enabled_ = allow; }
+
+void Box3Web::set_upload_enabled(bool allow) { this->upload_enabled_ = allow; }
 
 void Box3Web::handle_get(AsyncWebServerRequest *request) const {
     std::string extracted = this->extract_path_from_url(std::string(request->url().c_str()));
