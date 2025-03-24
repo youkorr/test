@@ -1,13 +1,10 @@
-// box3web.h
 #pragma once
-
 #include "esphome/core/component.h"
 #include "esphome/components/web_server_base/web_server_base.h"
+#include "esphome/components/web_server_idf/web_server_idf.h"
 #include "esphome/components/sd_mmc_card/sd_mmc_card.h"
-
 #include <string>
 #include <vector>
-
 
 namespace esphome {
 namespace box3web {
@@ -15,7 +12,6 @@ namespace box3web {
 class Path {
 public:
   static constexpr char separator = '/';
-
   static std::string file_name(std::string const &path);
   static bool is_absolute(std::string const &path);
   static bool trailing_slash(std::string const &path);
@@ -23,18 +19,23 @@ public:
   static std::string remove_root_path(std::string path, std::string const &root);
 };
 
-class Box3Web : public Component {
+class Box3Web : 
+    public Component, 
+    public web_server_idf::AsyncWebHandler {
 public:
   explicit Box3Web(web_server_base::WebServerBase *base);
-
+  
+  // Component methods
   void setup() override;
   void dump_config() override;
-
-  bool canHandle(AsyncWebServerRequest *request);
-  void handleRequest(AsyncWebServerRequest *request);
+  
+  // AsyncWebHandler methods
+  bool canHandle(AsyncWebServerRequest *request) override;
+  void handleRequest(AsyncWebServerRequest *request) override;
+  
   void handleUpload(AsyncWebServerRequest *request, const String &filename, size_t index, uint8_t *data,
                     size_t len, bool final);
-
+  
   void set_url_prefix(std::string const &prefix);
   void set_root_path(std::string const &path);
   void set_sd_mmc_card(sd_mmc_card::SdMmc *card);
@@ -55,9 +56,7 @@ private:
   void handle_download(AsyncWebServerRequest *request, std::string const &path) const;
   void handle_index(AsyncWebServerRequest *request, std::string const &path) const;
   void handle_delete(AsyncWebServerRequest *request);
-
   void write_row(AsyncResponseStream *response, sd_mmc_card::FileInfo const &info) const;
-
   std::string build_prefix() const;
   std::string extract_path_from_url(std::string const &url) const;
   std::string build_absolute_path(std::string relative_path) const;
