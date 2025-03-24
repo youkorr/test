@@ -202,7 +202,7 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
 
     // Correction : utiliser la méthode beginResponse avec un buffer
     auto *response = request->beginResponseStream("application/octet-stream");
-    response->addBuffer((const uint8_t*)file.data(), file.size());
+    response->print(std::string(file.begin(), file.end()));
     
     // Add filename suggestion in download header
     char content_disposition[256];
