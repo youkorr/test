@@ -7,7 +7,7 @@
 
 #include <string>
 #include <vector>
-#include <AsyncTCP.h>
+
 
 namespace esphome {
 namespace box3web {
