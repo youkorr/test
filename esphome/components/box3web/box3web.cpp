@@ -200,7 +200,9 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     // Get filename for Content-Disposition
     std::string filename = Path::file_name(path);
 
-    auto *response = request->beginResponse(200, "application/octet-stream", file.data(), file.size());
+    // Correction : utiliser la méthode beginResponse avec un buffer
+    auto *response = request->beginResponseStream("application/octet-stream");
+    response->write(file.data(), file.size());
     
     // Add filename suggestion in download header
     char content_disposition[256];
