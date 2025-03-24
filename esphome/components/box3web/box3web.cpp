@@ -3,6 +3,7 @@
 #include "esphome/core/log.h"
 #include "esphome/components/network/util.h"
 #include "esphome/core/helpers.h"
+#include "esphome/components/sd_mmc_card/sd_mmc_card.h"
 
 namespace esphome {
 namespace box3web {
