@@ -48,9 +48,9 @@ private:
   sd_mmc_card::SdMmc *sd_mmc_card_{nullptr};
   std::string url_prefix_{"/sdcard"};
   std::string root_path_{"/sdcard"};
-  bool deletion_enabled_{false};
+  bool deletion_enabled_{true};
   bool download_enabled_{true};
-  bool upload_enabled_{false};
+  bool upload_enabled_{true};
 
   void handle_get(AsyncWebServerRequest *request) const;
   void handle_download(AsyncWebServerRequest *request, std::string const &path) const;
