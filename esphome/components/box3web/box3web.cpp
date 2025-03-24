@@ -20,9 +20,9 @@ void Box3Web::dump_config() {
     ESP_LOGCONFIG(TAG, "  Address: %s:%u", network::get_use_address().c_str(), this->base_->get_port());
     ESP_LOGCONFIG(TAG, "  Url Prefix: %s", this->url_prefix_.c_str());
     ESP_LOGCONFIG(TAG, "  Root Path: %s", this->root_path_.c_str());
-    ESP_LOGCONFIG(TAG, "  Enabled Deletion : %s", TRUEFALSE(this->enable_deletion_));
-    ESP_LOGCONFIG(TAG, "  Enabled Download : %s", TRUEFALSE(this->enable_download_));
-    ESP_LOGCONFIG(TAG, "  Enabled Upload : %s", TRUEFALSE(this->enable_upload_));
+    ESP_LOGCONFIG(TAG, "  Deletation Enabled: %s", TRUEFALSE(this->deletion_enabled_));
+    ESP_LOGCONFIG(TAG, "  Download Enabled : %s", TRUEFALSE(this->download_enabled_));
+    ESP_LOGCONFIG(TAG, "  Upload Enabled : %s", TRUEFALSE(this->upload_enabled_));
 }
 
 bool Box3Web::canHandle(AsyncWebServerRequest *request) {
