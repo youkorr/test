@@ -7,13 +7,10 @@ namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
-// Déclaration statique de la page HTML (inchangée)
-static const char WEBDAV_HTML[] = R"(...)"; // Conservez votre HTML existant
-
 // Implémentation des méthodes statiques de gestion des requêtes
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, WEBDAV_HTML, strlen(WEBDAV_HTML));
+    httpd_resp_send(req, "<html><body><h1>WebDAV Server</h1></body></html>", strlen("<html><body><h1>WebDAV Server</h1></body></html>"));
     return ESP_OK;
 }
 
@@ -23,8 +20,8 @@ esp_err_t WebDAVBox3::handle_webdav_list(httpd_req_t *req) {
     
     DIR *dir;
     struct dirent *entry;
-    char fileList[4096] = {0};
-    
+    std::string fileList;
+
     dir = opendir(instance->root_path_.c_str());
     if (dir == NULL) {
         httpd_resp_send_500(req);
@@ -33,14 +30,14 @@ esp_err_t WebDAVBox3::handle_webdav_list(httpd_req_t *req) {
 
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_REG) {
-            strcat(fileList, entry->d_name);
-            strcat(fileList, "\n");
+            fileList += entry->d_name;
+            fileList += "\n";
         }
     }
     closedir(dir);
 
     httpd_resp_set_type(req, "text/plain");
-    httpd_resp_send(req, fileList, strlen(fileList));
+    httpd_resp_send(req, fileList.c_str(), fileList.size());
     return ESP_OK;
 }
 
@@ -48,17 +45,14 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     // Récupérer l'instance du composant
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", 
-             instance->root_path_.c_str(), req->uri + strlen("/webdav/"));
+    std::string filepath = instance->root_path_ + req->uri.substr(instance->url_prefix_.size());
 
-    FILE *file = fopen(filepath, "rb");
+    FILE *file = fopen(filepath.c_str(), "rb");
     if (!file) {
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
 
-    // Lecture et envoi du fichier
     char buffer[1024];
     size_t bytes_read;
     while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
@@ -73,11 +67,9 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     // Récupérer l'instance du composant
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", 
-             instance->root_path_.c_str(), req->uri + strlen("/webdav/"));
+    std::string filepath = instance->root_path_ + req->uri.substr(instance->url_prefix_.size());
 
-    FILE *file = fopen(filepath, "wb");
+    FILE *file = fopen(filepath.c_str(), "wb");
     if (!file) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
@@ -98,11 +90,9 @@ esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
     // Récupérer l'instance du composant
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s%s", 
-             instance->root_path_.c_str(), req->uri + strlen("/webdav/"));
+    std::string filepath = instance->root_path_ + req->uri.substr(instance->url_prefix_.size());
 
-    if (remove(filepath) == 0) {
+    if (remove(filepath.c_str()) == 0) {
         httpd_resp_sendstr(req, "Fichier supprimé avec succès");
     } else {
         httpd_resp_send_500(req);
@@ -124,31 +114,31 @@ void WebDAVBox3::configure_http_server() {
     // Tableau des URI à enregistrer
     httpd_uri_t uris[] = {
         {
-            .uri = "/",
+            .uri = (url_prefix_ + "/").c_str(),
             .method = HTTP_GET,
             .handler = handle_root,
             .user_ctx = this
         },
         {
-            .uri = "/webdav/",
+            .uri = (url_prefix_ + "/list").c_str(),
             .method = HTTP_GET,
             .handler = handle_webdav_list,
             .user_ctx = this
         },
         {
-            .uri = "/webdav/*",
+            .uri = (url_prefix_ + "/*").c_str(),
             .method = HTTP_GET,
             .handler = handle_webdav_get,
             .user_ctx = this
         },
         {
-            .uri = "/webdav/*",
+            .uri = (url_prefix_ + "/*").c_str(),
             .method = HTTP_PUT,
             .handler = handle_webdav_put,
             .user_ctx = this
         },
         {
-            .uri = "/webdav/*",
+            .uri = (url_prefix_ + "/*").c_str(),
             .method = HTTP_DELETE,
             .handler = handle_webdav_delete,
             .user_ctx = this
@@ -160,7 +150,7 @@ void WebDAVBox3::configure_http_server() {
         httpd_register_uri_handler(server_, &uri);
     }
 
-    ESP_LOGI(TAG, "WebDAV Box3 initialisé");
+    ESP_LOGI(TAG, "WebDAV Box3 initialisé avec préfixe : %s", url_prefix_.c_str());
 }
 
 void WebDAVBox3::setup() {
