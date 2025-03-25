@@ -13,8 +13,8 @@ CONFIG_SCHEMA = cv.Schema({
 })
 
 async def to_code(config):
-    # Solution robuste pour instanciation sans ID
-    var = cg.new_Pvariable(webdavbox3_ns.WebDAVBox3)
+    # Create a new Pvariable with an ID
+    var = cg.new_Pvariable(config, webdavbox3_ns.WebDAVBox3)
     
     if 'root_path' in config:
         cg.add(var.set_root_path(config['root_path']))
