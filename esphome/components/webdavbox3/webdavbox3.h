@@ -6,8 +6,7 @@
 #include "driver/sdmmc_defs.h"
 #include "../sd_mmc_card/sd_mmc_card.h"
 #include "esp_vfs_fat.h"
-#include "tcpip_adapter.h"
-
+#include "esp_netif.h"  // Remplace tcpip_adapter.h
 
 namespace esphome {
 namespace webdavbox3 {
@@ -25,7 +24,7 @@ private:
     httpd_handle_t server_ = NULL;
     std::string root_path_ = "/sdcard/";
     std::string url_prefix_ = "/webdav";
-    uint16_t port_ = 8080;  // Port par défaut
+    uint16_t port_ = 8080;
 
     static esp_err_t handle_root(httpd_req_t *req);
     static esp_err_t handle_webdav_list(httpd_req_t *req);
@@ -37,3 +36,4 @@ private:
 };
 } // namespace webdavbox3
 } // namespace esphome
+
