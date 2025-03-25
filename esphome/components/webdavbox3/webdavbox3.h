@@ -2,7 +2,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/web_server/web_server.h"
-#include "SD_MMC.h"
+#include "../sd_mmc_card/sd_mmc_card.h"
 
 namespace esphome {
 namespace webdavbox3 {
