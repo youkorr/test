@@ -45,7 +45,9 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     // Récupérer l'instance du composant
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    std::string filepath = instance->root_path_ + req->uri.substr(instance->url_prefix_.size());
+    // Convertir req->uri en std::string
+    std::string uri(req->uri);
+    std::string filepath = instance->root_path_ + uri.substr(instance->url_prefix_.size());
 
     FILE *file = fopen(filepath.c_str(), "rb");
     if (!file) {
@@ -67,7 +69,9 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     // Récupérer l'instance du composant
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    std::string filepath = instance->root_path_ + req->uri.substr(instance->url_prefix_.size());
+    // Convertir req->uri en std::string
+    std::string uri(req->uri);
+    std::string filepath = instance->root_path_ + uri.substr(instance->url_prefix_.size());
 
     FILE *file = fopen(filepath.c_str(), "wb");
     if (!file) {
@@ -90,7 +94,9 @@ esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
     // Récupérer l'instance du composant
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    std::string filepath = instance->root_path_ + req->uri.substr(instance->url_prefix_.size());
+    // Convertir req->uri en std::string
+    std::string uri(req->uri);
+    std::string filepath = instance->root_path_ + uri.substr(instance->url_prefix_.size());
 
     if (remove(filepath.c_str()) == 0) {
         httpd_resp_sendstr(req, "Fichier supprimé avec succès");
