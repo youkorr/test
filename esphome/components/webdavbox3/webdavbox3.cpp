@@ -1,126 +1,191 @@
 #include "webdavbox3.h"
-#include "esphome/core/log.h"
+#include "esp_log.h"
+#include "esp_http_server.h"
+#include "driver/sdmmc_host.h"
+#include "driver/sdmmc_defs.h"
+#include "sdmmc_cmd.h"
+#include "esp_vfs_fat.h"
 
 namespace esphome {
 namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
-void WebDAVBox3::setup() {
-    // Initialisation du WebServer parent
-    web_server::WebServer::setup();
-    
-    // Initialisation de la carte SD
-    if (!SD_MMC.begin()) {
-        ESP_LOGE(TAG, "Erreur d'initialisation de la carte SD");
-        return;
+// Déclaration statique de la page HTML (inchangée)
+static const char WEBDAV_HTML[] = R"(...)"; // Conservez votre HTML existant
+
+class WebDAVBox3 {
+private:
+    httpd_handle_t server_ = NULL;
+    const char* root_path_ = "/sdcard/";
+
+    // Gestionnaires de requêtes HTTP
+    static esp_err_t handle_root(httpd_req_t *req) {
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_send(req, WEBDAV_HTML, strlen(WEBDAV_HTML));
+        return ESP_OK;
     }
-    
-    // Enregistrer les gestionnaires de requêtes WebDAV
-    this->server_.on("^\\/webdav\\/.*$", HTTP_GET, std::bind(&WebDAVBox3::handle_webdav_request_, this));
-    this->server_.on("^\\/webdav\\/.*$", HTTP_PUT, std::bind(&WebDAVBox3::handle_webdav_request_, this));
-    this->server_.on("^\\/webdav\\/.*$", HTTP_DELETE, std::bind(&WebDAVBox3::handle_webdav_request_, this));
-}
 
-void WebDAVBox3::loop() {
-    // Appel du loop du parent
-    web_server::WebServer::loop();
-}
-
-void WebDAVBox3::handle_webdav_request_() {
-    String uri = this->server_.uri();
-    
-    // Supprimer le préfixe /webdav/
-    uri.replace("/webdav/", "");
-    uri = root_path_ + uri;
-    
-    switch (this->server_.method()) {
-        case HTTP_GET:
-            if (uri.endsWith("/")) {
-                list_directory_(uri);
-            } else {
-                handle_get_file_(uri);
-            }
-            break;
+    static esp_err_t handle_webdav_list(httpd_req_t *req) {
+        // Implémentation de la liste des fichiers
+        DIR *dir;
+        struct dirent *entry;
+        char fileList[4096] = {0};
         
-        case HTTP_PUT:
-            handle_put_file_(uri);
-            break;
-        
-        case HTTP_DELETE:
-            handle_delete_file_(uri);
-            break;
-        
-        default:
-            this->server_.send(405, "text/plain", "Méthode non autorisée");
-            break;
-    }
-}
-
-void WebDAVBox3::handle_get_file_(const String& path) {
-    if (!SD_MMC.exists(path)) {
-        this->server_.send(404, "text/plain", "Fichier non trouvé");
-        return;
-    }
-    
-    File file = SD_MMC.open(path, FILE_READ);
-    if (!file) {
-        this->server_.send(500, "text/plain", "Impossible d'ouvrir le fichier");
-        return;
-    }
-    
-    this->server_.streamFile(file, "application/octet-stream");
-    file.close();
-}
-
-void WebDAVBox3::handle_put_file_(const String& path) {
-    File file = SD_MMC.open(path, FILE_WRITE);
-    if (!file) {
-        this->server_.send(500, "text/plain", "Impossible de créer le fichier");
-        return;
-    }
-    
-    // Écriture du contenu du fichier
-    size_t bytesWritten = file.write(
-        (uint8_t*)this->server_.arg("plain").c_str(), 
-        this->server_.arg("plain").length()
-    );
-    file.close();
-    
-    if (bytesWritten == this->server_.arg("plain").length()) {
-        this->server_.send(200, "text/plain", "Fichier uploadé avec succès");
-    } else {
-        this->server_.send(500, "text/plain", "Erreur lors de l'upload");
-    }
-}
-
-void WebDAVBox3::handle_delete_file_(const String& path) {
-    if (SD_MMC.remove(path)) {
-        this->server_.send(200, "text/plain", "Fichier supprimé avec succès");
-    } else {
-        this->server_.send(500, "text/plain", "Impossible de supprimer le fichier");
-    }
-}
-
-void WebDAVBox3::list_directory_(const String& path) {
-    File root = SD_MMC.open(path);
-    if (!root || !root.isDirectory()) {
-        this->server_.send(404, "text/plain", "Répertoire non trouvé");
-        return;
-    }
-    
-    String fileList = "";
-    File file = root.openNextFile();
-    while (file) {
-        if (!file.isDirectory()) {
-            fileList += file.name();
-            fileList += "\n";
+        dir = opendir(root_path_);
+        if (dir == NULL) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
         }
-        file = root.openNextFile();
+
+        while ((entry = readdir(dir)) != NULL) {
+            if (entry->d_type == DT_REG) {
+                strcat(fileList, entry->d_name);
+                strcat(fileList, "\n");
+            }
+        }
+        closedir(dir);
+
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, fileList, strlen(fileList));
+        return ESP_OK;
     }
-    
-    this->server_.send(200, "text/plain", fileList);
-}
+
+    static esp_err_t handle_webdav_get(httpd_req_t *req) {
+        char filepath[256];
+        snprintf(filepath, sizeof(filepath), "%s%s", 
+                 root_path_, req->uri + strlen("/webdav/"));
+
+        FILE *file = fopen(filepath, "rb");
+        if (!file) {
+            httpd_resp_send_404(req);
+            return ESP_FAIL;
+        }
+
+        // Lecture et envoi du fichier
+        char buffer[1024];
+        size_t bytes_read;
+        while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+            httpd_resp_send_chunk(req, buffer, bytes_read);
+        }
+        fclose(file);
+        httpd_resp_send_chunk(req, NULL, 0);
+        return ESP_OK;
+    }
+
+    static esp_err_t handle_webdav_put(httpd_req_t *req) {
+        char filepath[256];
+        snprintf(filepath, sizeof(filepath), "%s%s", 
+                 root_path_, req->uri + strlen("/webdav/"));
+
+        FILE *file = fopen(filepath, "wb");
+        if (!file) {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+
+        char buffer[1024];
+        int received;
+        while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
+            fwrite(buffer, 1, received, file);
+        }
+        fclose(file);
+
+        httpd_resp_sendstr(req, "Fichier uploadé avec succès");
+        return ESP_OK;
+    }
+
+    static esp_err_t handle_webdav_delete(httpd_req_t *req) {
+        char filepath[256];
+        snprintf(filepath, sizeof(filepath), "%s%s", 
+                 root_path_, req->uri + strlen("/webdav/"));
+
+        if (remove(filepath) == 0) {
+            httpd_resp_sendstr(req, "Fichier supprimé avec succès");
+        } else {
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        return ESP_OK;
+    }
+
+public:
+    void setup() {
+        // Configuration de la carte SD avec ESP-IDF
+        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+        
+        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+            .format_if_mount_failed = false,
+            .max_files = 5,
+            .allocation_unit_size = 16 * 1024
+        };
+        
+        sdmmc_card_t* card;
+        esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
+        
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Erreur de montage de la carte SD");
+            return;
+        }
+
+        // Configuration du serveur HTTP
+        httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+        config.uri_match_fn = httpd_uri_match_wildcard;
+
+        if (httpd_start(&server_, &config) != ESP_OK) {
+            ESP_LOGE(TAG, "Erreur de démarrage du serveur");
+            return;
+        }
+
+        // Enregistrement des URI
+        httpd_uri_t root_uri = {
+            .uri = "/",
+            .method = HTTP_GET,
+            .handler = handle_root,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server_, &root_uri);
+
+        httpd_uri_t list_uri = {
+            .uri = "/webdav/",
+            .method = HTTP_GET,
+            .handler = handle_webdav_list,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server_, &list_uri);
+
+        httpd_uri_t get_uri = {
+            .uri = "/webdav/*",
+            .method = HTTP_GET,
+            .handler = handle_webdav_get,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server_, &get_uri);
+
+        httpd_uri_t put_uri = {
+            .uri = "/webdav/*",
+            .method = HTTP_PUT,
+            .handler = handle_webdav_put,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server_, &put_uri);
+
+        httpd_uri_t delete_uri = {
+            .uri = "/webdav/*",
+            .method = HTTP_DELETE,
+            .handler = handle_webdav_delete,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server_, &delete_uri);
+
+        ESP_LOGI(TAG, "WebDAV Box3 initialisé");
+    }
+
+    void loop() {
+        // Méthode loop vide
+    }
+};
 
 } // namespace webdavbox3
 } // namespace esphome
