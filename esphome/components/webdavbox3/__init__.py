@@ -12,6 +12,7 @@ WebDAVBox3 = webdavbox3_ns.class_('WebDAVBox3')
 CONFIG_SCHEMA = cv.Schema({
     cv.Required('id'): cv.declare_id(WebDAVBox3),
     cv.Optional('root_path', default='/sdcard/'): cv.string,
+    cv.Optional('url_prefix', default='/webdav'): cv.string,  # Nouveau paramètre
 })
 
 async def to_code(config):
@@ -20,6 +21,9 @@ async def to_code(config):
     
     if 'root_path' in config:
         cg.add(var.set_root_path(config['root_path']))
+    
+    if 'url_prefix' in config:
+        cg.add(var.set_url_prefix(config['url_prefix']))  # Ajouter le préfixe
     
     return var
 
