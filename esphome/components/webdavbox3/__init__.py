@@ -13,8 +13,8 @@ CONFIG_SCHEMA = cv.Schema({
 })
 
 async def to_code(config):
-    # Create a new Pvariable 
-    var = cg.new_Pvariable(webdavbox3_ns.WebDAVBox3)
+    # Instanciation correcte de la classe WebDAVBox3
+    var = cg.new_Pvariable(WebDAVBox3)
     
     if 'root_path' in config:
         cg.add(var.set_root_path(config['root_path']))
