@@ -10,13 +10,13 @@ namespace webdavbox3 {
 static const char* TAG = "webdavbox3";
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
-    tcpip_adapter_ip_info_t ip_info;
-    tcpip_adapter_get_ip_info(TCPIP_ADAPTER_IF_STA, &ip_info);
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
     
     char response[256];
     snprintf(response, sizeof(response), 
-        "<html><body><h1>WebDAV Server</h1><p>IP: %s:%d</p><p>Prefix: %s</p></body></html>", 
-        ip4addr_ntoa(&ip_info.ip), 
+        "<html><body><h1>WebDAV Server</h1><p>IP: " IPSTR ":%d</p><p>Prefix: %s</p></body></html>", 
+        IP2STR(&ip_info.ip), 
         static_cast<WebDAVBox3*>(req->user_ctx)->port_,
         static_cast<WebDAVBox3*>(req->user_ctx)->url_prefix_.c_str());
     
