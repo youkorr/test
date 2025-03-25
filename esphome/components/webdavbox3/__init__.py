@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 
-DEPENDENCIES = ['web_server', 'sd_card']
+DEPENDENCIES = ['web_server', 'sd_mmc_card']
 MULTI_CONF = True
 
 webdavbox3_ns = cg.esphome_ns.namespace('webdavbox3')
