@@ -1,10 +1,11 @@
 #pragma once
 
 #include "esphome/core/component.h"
-#include "esphome/core/helpers.h"
-#include "esphome/core/application.h"
+#include "esp_http_server.h"
+#include "driver/sdmmc_host.h"
+#include "driver/sdmmc_defs.h"
 #include "../sd_mmc_card/sd_mmc_card.h"
-#include <esp_http_server.h>
+#include "esp_vfs_fat.h"
 
 namespace esphome {
 namespace webdavbox3 {
@@ -14,23 +15,23 @@ public:
     void setup() override;
     void loop() override;
 
-    void set_root_path(const std::string& path) {
-        root_path_ = path.c_str();
-    }
+    // Permet de définir le chemin racine
+    void set_root_path(const std::string& path) { root_path_ = path; }
 
 private:
-    // Serveur web asynchrone
-    AsyncWebServer server_{80};
-    
-    // Chemin racine pour les opérations WebDAV
-    String root_path_{"/sdcard/"};
+    // Membres privés
+    httpd_handle_t server_ = NULL;
+    std::string root_path_ = "/sdcard/";
 
-    // Méthodes internes de gestion WebDAV
-    void handle_webdav_get_(AsyncWebServerRequest *request);
-    void handle_webdav_put_(AsyncWebServerRequest *request);
-    void handle_webdav_delete_(AsyncWebServerRequest *request);
-    void handle_webdav_list_(AsyncWebServerRequest *request);
-    void handle_root_(AsyncWebServerRequest *request);
+    // Méthodes statiques de gestion des requêtes HTTP
+    static esp_err_t handle_root(httpd_req_t *req);
+    static esp_err_t handle_webdav_list(httpd_req_t *req);
+    static esp_err_t handle_webdav_get(httpd_req_t *req);
+    static esp_err_t handle_webdav_put(httpd_req_t *req);
+    static esp_err_t handle_webdav_delete(httpd_req_t *req);
+
+    // Méthode privée pour configurer le serveur HTTP
+    void configure_http_server();
 };
 
 } // namespace webdavbox3
