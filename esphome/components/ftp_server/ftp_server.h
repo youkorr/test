@@ -47,7 +47,7 @@ class FTPServer : public Component {
   uint16_t port_{21};
   std::string username_{"admin"};
   std::string password_{"admin"};
-  std::string root_path_{"/sdcard"};
+  std::string root_path_{"/"};
   std::string current_path_;
   int ftp_server_socket_{-1};
   std::vector<int> client_sockets_;
