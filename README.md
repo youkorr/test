@@ -1,4 +1,4 @@
-# esphome_sd_card
+# FTP_SERVER SD_CARD WEB_PAGE sd_card
 
 SD MMC cards components for esphome.
 
