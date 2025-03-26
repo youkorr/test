@@ -47,6 +47,7 @@ ftp_server:
   root_path: "/"  # Chemin vers votre carte SD
   port: 21 
 
+pour le serveur FTP, vous aurez besoin de l'adresse IP de votre ESP et du root_path : "/" que vous avez créé dans votre carte SD, par exemple FTP://ESP IP address/
 
   box3web:
   id: box3_web
@@ -56,6 +57,8 @@ ftp_server:
   enable_upload: false 
 
 ```
-  
+To access the web page you need the IP address of your ESP and the URL_prefix that you have chosen, for example http://xxxxxxxxxxxx/files
+
+
 
 
