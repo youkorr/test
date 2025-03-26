@@ -37,7 +37,7 @@ sd_mmc_card:
   cmd_pin: GPIO15
   data0_pin: GPIO2
   power_ctrl_pin: GPIO43  # Active l'alimentation du lecteur de carte SD
-```
+``` yaml
 
 ftp_server 
 
