@@ -17,7 +17,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(FTPServer),
     cv.Required(CONF_USERNAME): cv.string,
     cv.Required(CONF_PASSWORD): cv.string,
-    cv.Optional(CONF_ROOT_PATH, default='/sdcard'): cv.string,
+    cv.Optional(CONF_ROOT_PATH, default='/'): cv.string,
     cv.Optional(CONF_PORT, default=21): cv.port,
 }).extend(cv.COMPONENT_SCHEMA)
 
