@@ -11,7 +11,7 @@
 #include <dirent.h>
 #include <cstring>
 #include <fstream>
-#include <base64.h>  // Si tu utilises une bibliothèque base64
+
 
 namespace esphome {
 namespace webdavbox3 {
