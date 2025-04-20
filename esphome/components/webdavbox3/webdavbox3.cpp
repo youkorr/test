@@ -1,195 +1,191 @@
 #include "webdavbox3.h"
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_vfs.h"
-#include "esp_vfs_fat.h"
-#include "driver/sdmmc_host.h"
-#include "driver/sdmmc_defs.h"
-#include <sys/param.h>
-#include "esp_http_server.h"
+#include "esphome/core/log.h"
+#include <dirent.h>
+#include <sys/stat.h>
+#include <cstring>
 
 namespace esphome {
 namespace webdavbox3 {
 
-static const char *TAG = "webdavbox3";
-
-void WebDAVBox3::setup() {
-  ESP_LOGI(TAG, "WebDAVBox3 setup started.");
-
-  // Check if SD card is mounted
-  if (!sd_mmc_card::is_mounted()) {
-    ESP_LOGE(TAG, "SD card is not mounted.");
-    return;
-  }
-
-  // Configure HTTP server
-  configure_http_server();
-
-  ESP_LOGI(TAG, "WebDAVBox3 setup completed.");
-}
-
-void WebDAVBox3::loop() {
-  // Empty loop
-}
-
-void WebDAVBox3::configure_http_server() {
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = port_;
-  config.uri_match_fn = httpd_uri_match_wildcard;
-  
-  // Start the HTTP server
-  if (httpd_start(&server_, &config) == ESP_OK) {
-    ESP_LOGI(TAG, "HTTP server started.");
-    // Register WebDAV handlers
-    httpd_uri_t uri = {
-        .uri = "/webdav/*",
-        .method = HTTP_GET,
-        .handler = handle_webdav_get,
-        .user_ctx = this
-    };
-    httpd_register_uri_handler(server_, &uri);
-
-    uri.method = HTTP_PUT;
-    uri.handler = handle_webdav_put;
-    httpd_register_uri_handler(server_, &uri);
-
-    uri.method = HTTP_DELETE;
-    uri.handler = handle_webdav_delete;
-    httpd_register_uri_handler(server_, &uri);
-  }
-}
-
-bool WebDAVBox3::authenticate(httpd_req_t *req) {
-  if (!auth_enabled_)
-    return true;  // No authentication needed
-
-  const char *auth = httpd_req_get_hdr_value_str(req, "Authorization");
-  if (auth == nullptr) {
-    ESP_LOGW(TAG, "Authorization header missing.");
-    return false;
-  }
-
-  // Extract username and password from header (simple check, base64 not used)
-  std::string auth_str(auth);
-  if (auth_str.substr(0, 6) == "Basic ") {
-    std::string credentials = auth_str.substr(6);
-    size_t delimiter = credentials.find(":");
-    if (delimiter != std::string::npos) {
-      std::string user = credentials.substr(0, delimiter);
-      std::string pass = credentials.substr(delimiter + 1);
-      if (user == username_ && pass == password_) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-esp_err_t WebDAVBox3::send_auth_required_response(httpd_req_t *req) {
-  httpd_resp_set_status(req, HTTPD_401);
-  httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"WebDAV\"");
-  httpd_resp_send(req, "Unauthorized", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
-}
-
-std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path) {
-  std::string uri(req->uri);
-  return root_path + uri.substr(url_prefix_.length());
-}
-
-bool WebDAVBox3::is_dir(const std::string &path) {
-  struct stat st;
-  return (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
-}
-
-std::vector<std::string> WebDAVBox3::list_dir(const std::string &path) {
-  std::vector<std::string> file_list;
-  DIR *d = opendir(path.c_str());
-  if (d) {
-    struct dirent *dir;
-    while ((dir = readdir(d)) != nullptr) {
-      file_list.push_back(dir->d_name);
-    }
-    closedir(d);
-  }
-  return file_list;
-}
+static const char* TAG = "webdavbox3";
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
-  // Root handler (return home page or list)
-  httpd_resp_send(req, "WebDAV Root", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
+    
+    char response[256];
+    snprintf(response, sizeof(response), 
+        "<html><body><h1>WebDAV Server</h1><p>IP: " IPSTR ":%d</p><p>Prefix: %s</p></body></html>", 
+        IP2STR(&ip_info.ip), 
+        static_cast<WebDAVBox3*>(req->user_ctx)->port_,
+        static_cast<WebDAVBox3*>(req->user_ctx)->url_prefix_.c_str());
+    
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, response, strlen(response));
+}
+
+esp_err_t WebDAVBox3::handle_webdav_list(httpd_req_t *req) {
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    
+    DIR *dir = opendir(instance->root_path_.c_str());
+    if (!dir) {
+        ESP_LOGE(TAG, "Failed to open directory %s", instance->root_path_.c_str());
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    std::string fileList = "Files in " + instance->root_path_ + ":\n";
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_type == DT_REG) {
+            fileList += entry->d_name;
+            fileList += "\n";
+        }
+    }
+    closedir(dir);
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, fileList.c_str(), fileList.size());
+    return ESP_OK;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
-  std::string file_path = get_file_path(req, root_path_);
-  ESP_LOGI(TAG, "GET request for file: %s", file_path.c_str());
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    std::string uri(req->uri);
+    std::string filepath = instance->root_path_ + uri.substr(instance->url_prefix_.size());
 
-  // Handle reading the file from SD card and sending it as response
-  FILE *file = fopen(file_path.c_str(), "r");
-  if (!file) {
-    ESP_LOGE(TAG, "Failed to open file: %s", file_path.c_str());
-    return HTTPD_404_NOT_FOUND;
-  }
+    struct stat st;
+    if (stat(filepath.c_str(), &st) != 0) {
+        ESP_LOGE(TAG, "File not found: %s", filepath.c_str());
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
 
-  // Send file content as HTTP response
-  fseek(file, 0, SEEK_END);
-  size_t file_size = ftell(file);
-  rewind(file);
-  char *buffer = (char *)malloc(file_size);
-  fread(buffer, 1, file_size, file);
-  fclose(file);
+    FILE *file = fopen(filepath.c_str(), "rb");
+    if (!file) {
+        ESP_LOGE(TAG, "Failed to open file %s", filepath.c_str());
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
 
-  httpd_resp_send(req, buffer, file_size);
-  free(buffer);
-
-  return ESP_OK;
+    char buffer[1024];
+    size_t bytes_read;
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        httpd_resp_send_chunk(req, buffer, bytes_read);
+    }
+    fclose(file);
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
-  std::string file_path = get_file_path(req, root_path_);
-  ESP_LOGI(TAG, "PUT request for file: %s", file_path.c_str());
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    std::string uri(req->uri);
+    std::string filepath = instance->root_path_ + uri.substr(instance->url_prefix_.size());
 
-  // Handle saving the uploaded file to SD card
-  FILE *file = fopen(file_path.c_str(), "w");
-  if (!file) {
-    ESP_LOGE(TAG, "Failed to open file: %s", file_path.c_str());
-    return HTTPD_500_INTERNAL_SERVER_ERROR;
-  }
+    FILE *file = fopen(filepath.c_str(), "wb");
+    if (!file) {
+        ESP_LOGE(TAG, "Failed to create file %s", filepath.c_str());
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
 
-  size_t received = 0;
-  while (received < req->content_len) {
-    size_t to_read = req->content_len - received;
-    if (to_read > 1024) to_read = 1024;
-
-    char *buffer = (char *)malloc(to_read);
-    httpd_req_recv(req, buffer, to_read);
-    fwrite(buffer, 1, to_read, file);
-    free(buffer);
-    received += to_read;
-  }
-
-  fclose(file);
-  httpd_resp_send(req, "File uploaded", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
+    char buffer[1024];
+    int received;
+    while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
+        fwrite(buffer, 1, received, file);
+    }
+    fclose(file);
+    httpd_resp_sendstr(req, "File uploaded successfully");
+    return ESP_OK;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
-  std::string file_path = get_file_path(req, root_path_);
-  ESP_LOGI(TAG, "DELETE request for file: %s", file_path.c_str());
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    std::string uri(req->uri);
+    std::string filepath = instance->root_path_ + uri.substr(instance->url_prefix_.size());
 
-  // Handle file deletion
-  if (remove(file_path.c_str()) != 0) {
-    ESP_LOGE(TAG, "Failed to delete file: %s", file_path.c_str());
-    return HTTPD_500_INTERNAL_SERVER_ERROR;
-  }
-
-  httpd_resp_send(req, "File deleted", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
+    if (remove(filepath.c_str()) == 0) {
+        httpd_resp_sendstr(req, "File deleted successfully");
+    } else {
+        ESP_LOGE(TAG, "Failed to delete file %s", filepath.c_str());
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
 }
 
-}  // namespace webdavbox3
-}  // namespace esphome
+void WebDAVBox3::configure_http_server() {
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    config.server_port = port_;
+    
+    if (httpd_start(&server_, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start server on port %d", port_);
+        return;
+    }
+
+    httpd_uri_t uris[] = {
+        {.uri = (url_prefix_ + "/").c_str(), .method = HTTP_GET, .handler = handle_root, .user_ctx = this},
+        {.uri = (url_prefix_ + "/list").c_str(), .method = HTTP_GET, .handler = handle_webdav_list, .user_ctx = this},
+        {.uri = (url_prefix_ + "/*").c_str(), .method = HTTP_GET, .handler = handle_webdav_get, .user_ctx = this},
+        {.uri = (url_prefix_ + "/*").c_str(), .method = HTTP_PUT, .handler = handle_webdav_put, .user_ctx = this},
+        {.uri = (url_prefix_ + "/*").c_str(), .method = HTTP_DELETE, .handler = handle_webdav_delete, .user_ctx = this}
+    };
+
+    for (auto& uri : uris) {
+        if (httpd_register_uri_handler(server_, &uri) != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to register URI handler for %s", uri.uri);
+        }
+    }
+
+    ESP_LOGI(TAG, "WebDAV server started on port %d with prefix %s", port_, url_prefix_.c_str());
+}
+
+void WebDAVBox3::start_server() {
+    // Configurer et démarrer le serveur HTTP
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    config.server_port = port_;  // Port de ton serveur HTTP
+
+    esp_err_t ret = httpd_start(&server_, &config);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Server started on port %d", port_);
+    } else {
+        ESP_LOGE(TAG, "Failed to start server on port %d: %s", port_, esp_err_to_name(ret));
+    }
+}
+
+void WebDAVBox3::setup() {
+  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+  sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+
+  esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+      .format_if_mount_failed = false,
+      .max_files = 5,
+      .allocation_unit_size = 16 * 1024};
+
+  sdmmc_card_t *card;
+  esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
+
+  if (ret != ESP_OK) {
+    ESP_LOGE("webdav", "Failed to mount SD card: %s", esp_err_to_name(ret));
+    return;
+  }
+
+  ESP_LOGI("webdav", "SD card mounted successfully");
+
+  configure_http_server();
+  start_server();  // Démarre le serveur WebDAV après la configuration
+}
+
+void WebDAVBox3::loop() {
+    // Nothing to do here for now
+}
+
+} // namespace webdavbox3
+} // namespace esphome
+
 
 
 
