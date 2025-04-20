@@ -1,12 +1,13 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PORT
-CODEOWNERS = ["@your_username"]
-DEPENDENCIES = ['web_server', 'sd_mmc']
-MULTI_CONF = True
 
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
+
+CODEOWNERS = ["@your_username"]
+DEPENDENCIES = ['web_server', 'sd_mmc']
+MULTI_CONF = True
 
 webdavbox3_ns = cg.esphome_ns.namespace('webdavbox3')
 WebDAVBox3 = webdavbox3_ns.class_('WebDAVBox3', cg.Component)
@@ -31,16 +32,17 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
-    
+
     cg.add(var.set_root_path(config['root_path']))
     cg.add(var.set_url_prefix(config['url_prefix']))
     cg.add(var.set_port(config[CONF_PORT]))
-    
+
     if CONF_USERNAME in config:
         cg.add(var.set_username(config[CONF_USERNAME]))
     if CONF_PASSWORD in config:
         cg.add(var.set_password(config[CONF_PASSWORD]))
-    
+
     return var
+
 
 
