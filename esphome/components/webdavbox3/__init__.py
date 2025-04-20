@@ -12,11 +12,13 @@ MULTI_CONF = True
 webdavbox3_ns = cg.esphome_ns.namespace('webdavbox3')
 WebDAVBox3 = webdavbox3_ns.class_('WebDAVBox3', cg.Component)
 
+# Validation des options username et password
 def validate_auth(config):
     if (CONF_USERNAME in config) != (CONF_PASSWORD in config):
         raise cv.Invalid("Both username and password must be specified together")
     return config
 
+# Schéma de configuration
 CONFIG_SCHEMA = cv.All(
     cv.Schema({
         cv.Required(CONF_ID): cv.declare_id(WebDAVBox3),
@@ -33,16 +35,19 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
+    # Ajout des valeurs de configuration
     cg.add(var.set_root_path(config['root_path']))
     cg.add(var.set_url_prefix(config['url_prefix']))
     cg.add(var.set_port(config[CONF_PORT]))
 
+    # Ajout des paramètres username et password
     if CONF_USERNAME in config:
         cg.add(var.set_username(config[CONF_USERNAME]))
     if CONF_PASSWORD in config:
         cg.add(var.set_password(config[CONF_PASSWORD]))
 
     return var
+
 
 
 
