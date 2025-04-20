@@ -22,10 +22,8 @@ CONFIG_SCHEMA = cv.All(
 )
 
 def validate_auth(config):
-    if CONF_USERNAME in config and CONF_PASSWORD not in config:
-        raise cv.Invalid("Password must be specified when username is set")
-    if CONF_PASSWORD in config and CONF_USERNAME not in config:
-        raise cv.Invalid("Username must be specified when password is set")
+    if (CONF_USERNAME in config) != (CONF_PASSWORD in config):
+        raise cv.Invalid("Both username and password must be specified together")
     return config
 
 FINAL_VALIDATE_SCHEMA = cv.All(
