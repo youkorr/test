@@ -27,8 +27,8 @@ CONFIG_SCHEMA = cv.All(
         cv.Optional('url_prefix', default='/webdav'): cv.string,
         cv.Optional(CONF_PORT, default=8080): cv.port,
         # Assurer que username et password sont bien ajoutés ici
-        cv.Optional(CONF_USERNAME): cv.string,
-        cv.Optional(CONF_PASSWORD): cv.string,
+        cv.Optional(CONF_USERNAME, default=""): cv.string,
+        cv.Optional(CONF_PASSWORD, default=""): cv.string,
     }).extend(cv.COMPONENT_SCHEMA),  # Extends pour inclure les composants standards
     validate_auth  # Validation des options
 )
