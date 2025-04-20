@@ -28,11 +28,14 @@ async def to_code(config):
     base = await cg.get_variable(config[web_server_base.CONF_WEB_SERVER_BASE_ID])
     cg.add(var.set_base(base))
 
+    # Si username est présent dans la configuration, l'ajouter à l'objet
     if CONF_USERNAME in config:
         cg.add(var.set_username(config[CONF_USERNAME]))  # Assignation de username
     
+    # Si password est présent dans la configuration, l'ajouter à l'objet
     if CONF_PASSWORD in config:
         cg.add(var.set_password(config[CONF_PASSWORD]))  # Assignation de password
+
 
 
 
