@@ -35,7 +35,7 @@ class WebDAVBox3 : public Component {
   uint16_t port_{8080};                // Le port par défaut
   std::string username_;
   std::string password_;
-  bool auth_enabled_{false};           // Si l'authentification est activée
+  bool auth_enabled_{true};           // Si l'authentification est activée
 
   // HTTP server configuration
   void configure_http_server();
