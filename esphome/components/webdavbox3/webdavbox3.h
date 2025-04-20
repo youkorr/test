@@ -1,5 +1,4 @@
 #pragma once
-
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 #include "esp_http_server.h"
@@ -14,36 +13,42 @@
 namespace esphome {
 namespace webdavbox3 {
 
-class WebDAVBox3 : public Component {
+class WebDavServer : public Component {
  public:
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
-
+  
   void set_root_path(const std::string &path) { root_path_ = path; }
   void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
   void set_port(uint16_t port) { port_ = port; }
-  void set_username(const std::string &username) { username_ = username; }
-  void set_password(const std::string &password) { password_ = password; }
-
+  void set_username(const std::string &username) { 
+    username_ = username; 
+    auth_enabled_ = !username.empty() && !password_.empty();
+  }
+  void set_password(const std::string &password) { 
+    password_ = password; 
+    auth_enabled_ = !username_.empty() && !password.empty();
+  }
+  
  private:
   httpd_handle_t server_{nullptr};
   std::string root_path_{"/sdcard/"};
   std::string url_prefix_{"/webdav"};
   uint16_t port_{8080};
-  std::string username_;
-  std::string password_;
+  std::string username_{};
+  std::string password_{};
   bool auth_enabled_{false};
-
+  
   // HTTP server configuration
   void configure_http_server();
   void start_server();
   void stop_server();
-
+  
   // Authentication helpers
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
-
+  
   // WebDAV methods
   static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
@@ -53,7 +58,7 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_mkcol(httpd_req_t *req);
   static esp_err_t handle_webdav_move(httpd_req_t *req);
   static esp_err_t handle_webdav_copy(httpd_req_t *req);
-
+  
   // File operations helpers
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
