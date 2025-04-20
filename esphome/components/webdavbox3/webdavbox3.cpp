@@ -157,27 +157,20 @@ void WebDAVBox3::start_server() {
 }
 
 void WebDAVBox3::setup() {
-  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-  sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    // Vérifier si la carte SD est déjà montée en vérifiant l'accès à /sdcard
+    struct stat st;
+    if (stat("/sdcard", &st) != 0) {
+        ESP_LOGE("webdav", "La carte SD n'est pas accessible ! Vérifie le montage.");
+        return;
+    }
 
-  esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-      .format_if_mount_failed = false,
-      .max_files = 5,
-      .allocation_unit_size = 16 * 1024};
+    ESP_LOGI("webdav", "Carte SD déjà montée avec succès");
 
-  sdmmc_card_t *card;
-  esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
-
-  if (ret != ESP_OK) {
-    ESP_LOGE("webdav", "Failed to mount SD card: %s", esp_err_to_name(ret));
-    return;
-  }
-
-  ESP_LOGI("webdav", "SD card mounted successfully");
-
-  configure_http_server();
-  start_server();  // Démarre le serveur WebDAV après la configuration
+    // Configuration du serveur WebDAV
+    configure_http_server();
+    start_server();  // Démarre le serveur WebDAV après la configuration
 }
+
 
 void WebDAVBox3::loop() {
     // Nothing to do here for now
