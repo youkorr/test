@@ -48,6 +48,7 @@ class WebDAVBox3 : public Component {
 
   // WebDAV methods
   static esp_err_t handle_root(httpd_req_t *req);
+  static esp_err_t handle_webdav_list(httpd_req_t *req);         
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
   static esp_err_t handle_webdav_get(httpd_req_t *req);
   static esp_err_t handle_webdav_put(httpd_req_t *req);
@@ -64,5 +65,6 @@ class WebDAVBox3 : public Component {
 
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
