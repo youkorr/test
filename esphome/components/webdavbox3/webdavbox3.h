@@ -26,26 +26,29 @@ class WebDAVBox3 : public Component {
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
 
-  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
+  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }  // Nouveauté pour activer/désactiver l'authentification
 
  private:
   httpd_handle_t server_{nullptr};
-  std::string root_path_{"/sdcard/"};  
-  std::string url_prefix_{"/webdav"};  
-  uint16_t port_{8080};                
+  std::string root_path_{"/sdcard/"};  // Le chemin par défaut
+  std::string url_prefix_{"/webdav"};  // Le préfixe d'URL
+  uint16_t port_{8080};                // Le port par défaut
   std::string username_;
   std::string password_;
-  bool auth_enabled_{true};           
+  bool auth_enabled_{false};           // Si l'authentification est activée
 
+  // HTTP server configuration
   void configure_http_server();
   void start_server();
   void stop_server();
 
+  // Authentication helpers
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
 
+  // WebDAV methods
   static esp_err_t handle_root(httpd_req_t *req);
-  static esp_err_t handle_webdav_list(httpd_req_t *req);         
+  static esp_err_t handle_webdav_list(httpd_req_t *req);         // ✅ Correction ajoutée ici
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
   static esp_err_t handle_webdav_get(httpd_req_t *req);
   static esp_err_t handle_webdav_put(httpd_req_t *req);
@@ -54,6 +57,7 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_move(httpd_req_t *req);
   static esp_err_t handle_webdav_copy(httpd_req_t *req);
 
+  // File operations helpers
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
   static std::vector<std::string> list_dir(const std::string &path);
@@ -61,6 +65,7 @@ class WebDAVBox3 : public Component {
 
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
