@@ -3,8 +3,8 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_PORT
 
 # Définir des constantes pour les options username et password
-CONF_USERNAME,
-CONF_PASSWORD,
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
 
 CODEOWNERS = ["@your_username"]
 DEPENDENCIES = ['web_server', 'sd_mmc']
@@ -49,6 +49,7 @@ async def to_code(config):
         cg.add(var.set_password(config[CONF_PASSWORD]))
 
     return var
+
 
 
 
