@@ -142,6 +142,20 @@ void WebDAVBox3::configure_http_server() {
     ESP_LOGI(TAG, "WebDAV server started on port %d with prefix %s", port_, url_prefix_.c_str());
 }
 
+void WebDAVBox3::start_server() {
+    // Configurer et démarrer le serveur HTTP
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    config.server_port = port_;  // Port de ton serveur HTTP
+
+    esp_err_t ret = httpd_start(&server_, &config);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Server started on port %d", port_);
+    } else {
+        ESP_LOGE(TAG, "Failed to start server on port %d: %s", port_, esp_err_to_name(ret));
+    }
+}
+
 void WebDAVBox3::setup() {
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
   sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
@@ -162,11 +176,13 @@ void WebDAVBox3::setup() {
   ESP_LOGI("webdav", "SD card mounted successfully");
 
   configure_http_server();
-  start_server();  // ← 🔥 IMPORTANT : démarre le serveur WebDAV
+  start_server();  // Démarre le serveur WebDAV après la configuration
 }
 
 void WebDAVBox3::loop() {
     // Nothing to do here for now
 }
+
 } // namespace webdavbox3
 } // namespace esphome
+
