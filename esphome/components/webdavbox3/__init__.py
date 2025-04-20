@@ -1,9 +1,12 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_PORT, CONF_USERNAME, CONF_PASSWORD
+from esphome.const import CONF_ID, CONF_PORT
 CODEOWNERS = ["@your_username"]
 DEPENDENCIES = ['web_server', 'sd_mmc']
 MULTI_CONF = True
+
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
 
 webdavbox3_ns = cg.esphome_ns.namespace('webdavbox3')
 WebDAVBox3 = webdavbox3_ns.class_('WebDAVBox3', cg.Component)
