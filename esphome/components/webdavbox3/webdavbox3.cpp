@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <cstring>
 #include <fstream>
+#include <base64.h>  // Si tu utilises une bibliothèque base64
 
 namespace esphome {
 namespace webdavbox3 {
@@ -19,7 +20,7 @@ static const char *TAG = "webdavbox3";
 
 // ======== Setup & Loop ========
 void WebDAVBox3::setup() {
-  if (!sd_mmc_card::is_mounted()) {
+  if (!is_sd_mounted()) {
     ESP_LOGE(TAG, "SD card not mounted, WebDAV server not started.");
     return;
   }
@@ -89,9 +90,15 @@ void WebDAVBox3::stop_server() {
 }
 
 // ======== Helpers ========
-std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path) {
+bool WebDAVBox3::is_sd_mounted() {
+  sdmmc_card_t *card;
+  esp_err_t ret = sdmmc_card_get_slot(card);  // Exemple de vérification
+  return ret == ESP_OK;
+}
+
+std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path, const std::string &url_prefix) {
   std::string uri = req->uri;
-  std::string full_path = root_path + uri.substr(url_prefix_.length());
+  std::string full_path = root_path + uri.substr(url_prefix.length());
   return full_path;
 }
 
@@ -120,12 +127,12 @@ std::vector<std::string> WebDAVBox3::list_dir(const std::string &path) {
 bool WebDAVBox3::authenticate(httpd_req_t *req) {
   if (!auth_enabled_) return true;
 
-  const char *auth = httpd_req_get_hdr_value(req, "Authorization");
+  const char *auth = httpd_req_get_hdr_value_str(req, "Authorization");
   if (!auth || strncmp(auth, "Basic ", 6) != 0) return false;
 
   std::string encoded = auth + 6;
   std::string expected = username_ + ":" + password_;
-  std::string encoded_expected = esphome::base64::encode(expected);
+  std::string encoded_expected = base64_encode(expected);  // Utilisation de base64_encode()
 
   return encoded == encoded_expected;
 }
@@ -141,7 +148,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   WebDAVBox3 *self = static_cast<WebDAVBox3 *>(req->user_ctx);
   if (!self->authenticate(req)) return self->send_auth_required_response(req);
 
-  std::string path = get_file_path(req, self->root_path_);
+  std::string path = get_file_path(req, self->root_path_, self->url_prefix_);
 
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) return httpd_resp_send_404(req);
@@ -157,58 +164,9 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   return ESP_OK;
 }
 
-esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
-  WebDAVBox3 *self = static_cast<WebDAVBox3 *>(req->user_ctx);
-  if (!self->authenticate(req)) return self->send_auth_required_response(req);
-
-  std::string path = get_file_path(req, self->root_path_);
-  std::ofstream file(path, std::ios::binary);
-  if (!file.is_open()) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-
-  char buffer[1024];
-  int received;
-  while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
-    file.write(buffer, received);
-  }
-
-  file.close();
-  return httpd_resp_send(req, "File uploaded", HTTPD_RESP_USE_STRLEN);
-}
-
-esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
-  WebDAVBox3 *self = static_cast<WebDAVBox3 *>(req->user_ctx);
-  if (!self->authenticate(req)) return self->send_auth_required_response(req);
-
-  std::string path = get_file_path(req, self->root_path_);
-  if (unlink(path.c_str()) != 0) return httpd_resp_send_500(req);
-
-  return httpd_resp_send(req, "File deleted", HTTPD_RESP_USE_STRLEN);
-}
-
-esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
-  WebDAVBox3 *self = static_cast<WebDAVBox3 *>(req->user_ctx);
-  if (!self->authenticate(req)) return self->send_auth_required_response(req);
-
-  std::string path = get_file_path(req, self->root_path_);
-  if (!is_dir(path)) return httpd_resp_send_404(req);
-
-  std::vector<std::string> files = list_dir(path);
-  std::string response = "<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\">";
-
-  for (const std::string &file : files) {
-    response += "<d:response><d:href>/" + file + "</d:href><d:propstat><d:prop><d:resourcetype/>";
-    response += "</d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>";
-  }
-
-  response += "</d:multistatus>";
-
-  httpd_resp_set_type(req, "application/xml");
-  httpd_resp_set_status(req, "207 Multi-Status");
-  return httpd_resp_send(req, response.c_str(), response.length());
-}
-
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
