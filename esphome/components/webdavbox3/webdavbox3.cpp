@@ -101,7 +101,7 @@ void WebDAVBox3::configure_http_server() {
   // Gestion des méthodes non autorisées
   httpd_uri_t method_not_allowed_uri = {
     .uri = "/*",
-    .method = HTTP_ANY,  // Capte toutes les méthodes non définies
+    .method = HTTP_METHOD_GET | HTTP_METHOD_POST | HTTP_METHOD_PUT | HTTP_METHOD_DELETE,  // Exemples de méthodes
     .handler = handle_method_not_allowed,
     .user_ctx = this
   };
