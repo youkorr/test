@@ -1,14 +1,15 @@
+
 #include "webdavbox3.h"
 #include "esphome/core/log.h"
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <fstream>
-#include <esp_http_server.h>
+#include <sstream>
+#include <iomanip>
 
 namespace esphome {
 namespace webdavbox3 {
-
 
 static const char *const TAG = "webdavbox3";
 
@@ -22,37 +23,21 @@ void WebDAVBox3::loop() {
   // Rien pour le moment
 }
 
-esp_err_t WebDAVBox3::handle_method_not_allowed(httpd_req_t *req) {
-    ESP_LOGE(TAG, "Method not allowed: %d on URI %s", req->method, req->uri);
-    httpd_resp_set_status(req, "405 Method Not Allowed");
-    httpd_resp_send(req, NULL, 0);
-    return ESP_OK;
-}
-
 void WebDAVBox3::configure_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = port_;
-  config.ctrl_port = port_ + 1000;
-  config.max_uri_handlers = 20;
+  config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
+  config.max_uri_handlers = 16;     // Augmentation du nombre maximum de gestionnaires URI
+  config.lru_purge_enable = true;   // Activer la purge LRU pour libérer des emplacements
   
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start server on port %d", port_);
     server_ = nullptr;
     return;
   }
-
-  // Catch-all handler for unsupported methods
-  httpd_uri_t method_not_allowed_uri = {
-    .uri = "/*",
-    .method = HTTP_ANY,
-    .handler = [](httpd_req_t *req) {
-      return static_cast<WebDAVBox3*>(req->user_ctx)->handle_method_not_allowed(req);
-    },
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &method_not_allowed_uri);
-
-  // Root handler
+  ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
+  
+  // Gestionnaire pour la racine
   httpd_uri_t root_uri = {
     .uri = "/",
     .method = HTTP_GET,
@@ -61,7 +46,7 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &root_uri);
   
-  // WebDAV OPTIONS handler
+  // Gestionnaire OPTIONS pour les méthodes WebDAV
   httpd_uri_t options_uri = {
     .uri = "/*",
     .method = HTTP_OPTIONS,
@@ -70,7 +55,7 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &options_uri);
   
-  // PROPFIND handlers
+  // Gestionnaires PROPFIND (pour la racine et tous les chemins)
   httpd_uri_t propfind_uri = {
     .uri = "/",
     .method = HTTP_PROPFIND,
@@ -87,7 +72,16 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &propfind_wildcard_uri);
   
-  // Other WebDAV handlers
+  // Ajout du support pour PROPPATCH
+  httpd_uri_t proppatch_uri = {
+    .uri = "/*",
+    .method = HTTP_PROPPATCH,
+    .handler = handle_webdav_proppatch,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &proppatch_uri);
+  
+  // Autres gestionnaires WebDAV
   httpd_uri_t get_uri = {
     .uri = "/*",
     .method = HTTP_GET,
@@ -136,7 +130,7 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &copy_uri);
   
-  // LOCK/UNLOCK handlers
+  // Gestionnaires pour LOCK et UNLOCK
   httpd_uri_t lock_uri = {
     .uri = "/*",
     .method = HTTP_LOCK,
@@ -167,18 +161,31 @@ void WebDAVBox3::stop_server() {
   }
 }
 
-esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
-  const char* allowed_methods = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, COPY, MOVE, LOCK, UNLOCK";
-  httpd_resp_set_hdr(req, "Allow", allowed_methods);
-  httpd_resp_set_hdr(req, "DAV", "1, 2");
-  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
-  httpd_resp_send(req, NULL, 0);
-  return ESP_OK;
+// Fonction utilitaire pour le décodage d'URL
+std::string WebDAVBox3::url_decode(const std::string &src) {
+  std::string result;
+  char ch;
+  int i, j;
+  for (i = 0; i < src.length(); i++) {
+    if (src[i] == '%' && i + 2 < src.length()) {
+      sscanf(src.substr(i + 1, 2).c_str(), "%x", &j);
+      ch = static_cast<char>(j);
+      result += ch;
+      i += 2;
+    } else if (src[i] == '+') {
+      result += ' ';
+    } else {
+      result += src[i];
+    }
+  }
+  return result;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
+  // Implémentation minimale pour LOCK
   ESP_LOGD(TAG, "LOCK sur %s", req->uri);
   
+  // Réponse minimaliste pour indiquer un verrouillage réussi
   std::string response = "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n"
                          "<D:prop xmlns:D=\"DAV:\">\n"
                          "  <D:lockdiscovery>\n"
@@ -187,6 +194,9 @@ esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
                          "      <D:lockscope><D:exclusive/></D:lockscope>\n"
                          "      <D:depth>0</D:depth>\n"
                          "      <D:timeout>Second-600</D:timeout>\n"
+                         "      <D:locktoken>\n"
+                         "        <D:href>opaquelocktoken:e71d4fae-5dec-22d6-fea5-00a0c93bd5eb</D:href>\n"
+                         "      </D:locktoken>\n"
                          "    </D:activelock>\n"
                          "  </D:lockdiscovery>\n"
                          "</D:prop>";
@@ -198,24 +208,56 @@ esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
 }
 
 esp_err_t WebDAVBox3::handle_webdav_unlock(httpd_req_t *req) {
+  // Implémentation minimale pour UNLOCK
   ESP_LOGD(TAG, "UNLOCK sur %s", req->uri);
+  
+  // Réponse simple indiquant que le déverrouillage a réussi
   httpd_resp_set_status(req, "204 No Content");
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
 
+// Ajout du handler pour PROPPATCH
+esp_err_t WebDAVBox3::handle_webdav_proppatch(httpd_req_t *req) {
+  ESP_LOGD(TAG, "PROPPATCH sur %s", req->uri);
+  
+  // Réponse simple pour PROPPATCH
+  std::string response = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<D:multistatus xmlns:D=\"DAV:\">\n"
+                         "  <D:response>\n"
+                         "    <D:href>" + std::string(req->uri) + "</D:href>\n"
+                         "    <D:propstat>\n"
+                         "      <D:prop></D:prop>\n"
+                         "      <D:status>HTTP/1.1 200 OK</D:status>\n"
+                         "    </D:propstat>\n"
+                         "  </D:response>\n"
+                         "</D:multistatus>";
+  
+  httpd_resp_set_type(req, "application/xml");
+  httpd_resp_set_status(req, "207 Multi-Status");
+  httpd_resp_send(req, response.c_str(), response.length());
+  return ESP_OK;
+}
+
+// Amélioration de la fonction get_file_path
 std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path) {
   std::string uri = req->uri;
   std::string path = root_path;
   
+  // Décodage de l'URL pour gérer les caractères spéciaux
+  uri = url_decode(uri);
+  
+  // S'assurer que le chemin se termine par un '/' si ce n'est pas déjà le cas
   if (path.back() != '/' && !uri.empty() && uri.front() != '/')
     path += '/';
   
+  // Éviter les doubles barres obliques
   if (!uri.empty() && uri.front() == '/' && path.back() == '/')
     path += uri.substr(1);
   else
     path += uri;
   
+  ESP_LOGD(TAG, "Mapped URI %s to path %s", req->uri, path.c_str());
   return path;
 }
 
@@ -237,10 +279,13 @@ std::vector<std::string> WebDAVBox3::list_dir(const std::string &path) {
       }
     }
     closedir(dir);
+  } else {
+    ESP_LOGE(TAG, "Impossible d'ouvrir le répertoire: %s (errno: %d)", path.c_str(), errno);
   }
   return files;
 }
 
+// Fonction utilitaire pour générer la réponse XML pour un fichier ou répertoire
 std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size) {
   char time_buf[30];
   strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%SZ", gmtime(&modified));
@@ -257,6 +302,7 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   xml += "        <D:getlastmodified>" + std::string(time_buf) + "</D:getlastmodified>\n";
   if (!is_directory) {
     xml += "        <D:getcontentlength>" + std::to_string(size) + "</D:getcontentlength>\n";
+    xml += "        <D:getcontenttype>application/octet-stream</D:getcontenttype>\n";
   }
   xml += "      </D:prop>\n";
   xml += "      <D:status>HTTP/1.1 200 OK</D:status>\n";
@@ -266,8 +312,25 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   return xml;
 }
 
+// ========== HANDLERS ==========
+
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   httpd_resp_send(req, "ESP32 WebDAV Server OK", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// Gestionnaire OPTIONS amélioré
+esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
+  ESP_LOGD(TAG, "OPTIONS sur %s", req->uri);
+  
+  // Set allowed methods with PROPPATCH included
+  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
+  httpd_resp_set_hdr(req, "DAV", "1, 2");
+  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
+  // Add these headers for compatibility with various clients
+  httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
+  httpd_resp_set_hdr(req, "Content-Length", "0");
+  httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
 
@@ -275,31 +338,39 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
 
-  ESP_LOGD(TAG, "PROPFIND sur %s", path.c_str());
+  ESP_LOGD(TAG, "PROPFIND sur %s (URI: %s)", path.c_str(), req->uri);
   
+  // Vérifier si le chemin existe
   struct stat st;
   if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Chemin non trouvé: %s", path.c_str());
+    ESP_LOGE(TAG, "Chemin non trouvé: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
   }
   
   bool is_directory = S_ISDIR(st.st_mode);
-  std::string depth_header = "0";
+  std::string depth_header = "0";  // Par défaut, profondeur 0
   
+  // Récupérer l'en-tête Depth
   char depth_value[10];
   if (httpd_req_get_hdr_value_str(req, "Depth", depth_value, sizeof(depth_value)) == ESP_OK) {
     depth_header = depth_value;
+    ESP_LOGD(TAG, "Depth header: %s", depth_header.c_str());
   }
   
+  // Construction de la réponse XML
   std::string response = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                          "<D:multistatus xmlns:D=\"DAV:\">\n";
   
+  // URI relatif pour le chemin actuel
   std::string uri_path = req->uri;
   if (uri_path.empty() || uri_path == "/") uri_path = "/";
+  // Assurer que les dossiers se terminent par '/'
   if (is_directory && uri_path.back() != '/') uri_path += '/';
   
+  // Ajouter les propriétés pour le chemin actuel
   response += generate_prop_xml(uri_path, is_directory, st.st_mtime, st.st_size);
   
+  // Si c'est un répertoire et que la profondeur > 0, lister son contenu
   if (is_directory && (depth_header == "1" || depth_header == "infinity")) {
     for (const auto &file_name : list_dir(path)) {
       std::string file_path = path;
@@ -333,31 +404,36 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
 
   ESP_LOGD(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
   
+  // Vérifier si c'est un répertoire
   if (is_dir(path)) {
     ESP_LOGD(TAG, "C'est un répertoire, redirection vers PROPFIND");
     return handle_webdav_propfind(req);
   }
 
+  // Vérifier explicitement si le fichier existe
   struct stat st;
   if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Fichier non trouvé: %s", path.c_str());
+    ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
 
   FILE *file = fopen(path.c_str(), "rb");
   if (!file) {
-    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s", path.c_str());
+    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
 
+  // Obtenir la taille du fichier
   fseek(file, 0, SEEK_END);
   size_t file_size = ftell(file);
   fseek(file, 0, SEEK_SET);
   
+  // Définir le type de contenu et la longueur
   httpd_resp_set_type(req, "application/octet-stream");
   httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
+  httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
 
-  char buffer[1024];
+  char buffer[4096]; // Utiliser un buffer plus grand pour améliorer les performances
   size_t read_bytes;
   while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
     httpd_resp_send_chunk(req, buffer, read_bytes);
@@ -372,26 +448,46 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
 
-  ESP_LOGD(TAG, "PUT %s", path.c_str());
+  ESP_LOGD(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
   
+  // Vérifier si le répertoire parent existe
   std::string parent_dir = path.substr(0, path.find_last_of('/'));
   if (!parent_dir.empty() && !is_dir(parent_dir)) {
-    mkdir(parent_dir.c_str(), 0755);
+    // Créer les répertoires parents si nécessaire
+    ESP_LOGD(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
+    if (mkdir(parent_dir.c_str(), 0755) != 0) {
+      ESP_LOGE(TAG, "Échec de création du répertoire: %s (errno: %d)", parent_dir.c_str(), errno);
+    }
   }
 
   FILE *file = fopen(path.c_str(), "wb");
-  if (!file)
+  if (!file) {
+    ESP_LOGE(TAG, "Impossible de créer le fichier: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
+  }
 
-  char buffer[1024];
+  char buffer[4096]; // Buffer plus grand
   int received;
 
   while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
-    fwrite(buffer, 1, received, file);
+    if (fwrite(buffer, 1, received, file) != received) {
+      ESP_LOGE(TAG, "Erreur d'écriture dans le fichier");
+      fclose(file);
+      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error");
+    }
   }
 
   fclose(file);
-  httpd_resp_set_status(req, "201 Created");
+  
+  // Pour les fichiers existants, utilisez 204 No Content
+  struct stat st;
+  if (stat(path.c_str(), &st) == 0 && st.st_size > 0) {
+    httpd_resp_set_status(req, "204 No Content");
+  } else {
+    // Pour les nouveaux fichiers, utilisez 201 Created
+    httpd_resp_set_status(req, "201 Created");
+  }
+  
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
@@ -400,40 +496,64 @@ esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
 
-  ESP_LOGD(TAG, "DELETE %s", path.c_str());
+  ESP_LOGD(TAG, "DELETE %s (URI: %s)", path.c_str(), req->uri);
   
+  // Vérifier si le chemin existe
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Chemin non trouvé: %s", path.c_str());
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  }
+  
+  // Vérifier si c'est un répertoire ou un fichier
   if (is_dir(path)) {
+    // Supprimer le répertoire (doit être vide)
     if (rmdir(path.c_str()) == 0) {
       httpd_resp_set_status(req, "204 No Content");
       httpd_resp_send(req, NULL, 0);
       return ESP_OK;
+    } else {
+      ESP_LOGE(TAG, "Erreur lors de la suppression du répertoire: %s (errno: %d)", path.c_str(), errno);
     }
   } else {
+    // Supprimer le fichier
     if (remove(path.c_str()) == 0) {
       httpd_resp_set_status(req, "204 No Content");
       httpd_resp_send(req, NULL, 0);
       return ESP_OK;
+    } else {
+      ESP_LOGE(TAG, "Erreur lors de la suppression du fichier: %s (errno: %d)", path.c_str(), errno);
     }
   }
 
-  return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Delete failed");
 }
 
 esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
 
-  ESP_LOGD(TAG, "MKCOL %s", path.c_str());
+  ESP_LOGD(TAG, "MKCOL %s (URI: %s)", path.c_str(), req->uri);
   
+  // Vérifier si le chemin existe déjà
   struct stat st;
   if (stat(path.c_str(), &st) == 0) {
     return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Resource already exists");
+  }
+
+  // Vérifier si le répertoire parent existe
+  std::string parent_dir = path.substr(0, path.find_last_of('/'));
+  if (!parent_dir.empty() && !is_dir(parent_dir)) {
+    ESP_LOGE(TAG, "Le répertoire parent n'existe pas: %s", parent_dir.c_str());
+    return httpd_resp_send_err(req, HTTPD_409_CONFLICT, "Parent directory doesn't exist");
   }
 
   if (mkdir(path.c_str(), 0755) == 0) {
     httpd_resp_set_status(req, "201 Created");
     httpd_resp_send(req, NULL, 0);
     return ESP_OK;
+  } else {
+    ESP_LOGE(TAG, "Échec de création du répertoire: %s (errno: %d)", path.c_str(), errno);
   }
 
   return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
@@ -445,30 +565,57 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
 
   char dest_uri[512];
   if (httpd_req_get_hdr_value_str(req, "Destination", dest_uri, sizeof(dest_uri)) == ESP_OK) {
-    const char *path_start = strstr(dest_uri, inst->root_path_.c_str());
-    std::string dst;
+    ESP_LOGD(TAG, "Destination header: %s", dest_uri);
     
-    if (path_start) {
-      dst = path_start;
+    // Parser l'URI de destination en extrayant le chemin relatif
+    std::string dest_url = dest_uri;
+    size_t start_pos = dest_url.find("://");
+    if (start_pos != std::string::npos) {
+      start_pos = dest_url.find("/", start_pos + 3);
+      if (start_pos != std::string::npos) {
+        dest_url = dest_url.substr(start_pos);
+      }
+    }
+    
+    // Décodage de l'URL de destination
+    std::string decoded_dest = url_decode(dest_url);
+    
+    // Construire le chemin de destination complet
+    std::string dst;
+    if (decoded_dest.empty() || decoded_dest[0] != '/') {
+      dst = inst->root_path_;
+      if (dst.back() != '/') dst += '/';
+      dst += decoded_dest;
     } else {
       dst = inst->root_path_;
-      if (dst.back() != '/' && dest_uri[0] != '/') dst += '/';
-      if (dst.back() == '/' && dest_uri[0] == '/') dst += (dest_uri + 1);
-      else dst += dest_uri;
+      if (dst.back() == '/' && decoded_dest[0] == '/') {
+        dst += decoded_dest.substr(1);
+      } else {
+        dst += decoded_dest;
+      }
     }
     
     ESP_LOGD(TAG, "MOVE de %s vers %s", src.c_str(), dst.c_str());
     
+    // Créer le répertoire parent si nécessaire
     std::string parent_dir = dst.substr(0, dst.find_last_of('/'));
     if (!parent_dir.empty() && !is_dir(parent_dir)) {
-      mkdir(parent_dir.c_str(), 0755);
+      ESP_LOGD(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
+      if (mkdir(parent_dir.c_str(), 0755) != 0) {
+        ESP_LOGE(TAG, "Échec de création du répertoire: %s (errno: %d)", parent_dir.c_str(), errno);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create parent directory");
+      }
     }
     
     if (rename(src.c_str(), dst.c_str()) == 0) {
       httpd_resp_set_status(req, "201 Created");
       httpd_resp_send(req, NULL, 0);
       return ESP_OK;
+    } else {
+      ESP_LOGE(TAG, "Échec du déplacement: %s -> %s (errno: %d)", src.c_str(), dst.c_str(), errno);
     }
+  } else {
+    ESP_LOGE(TAG, "En-tête Destination manquant pour MOVE");
   }
 
   return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Move failed");
@@ -480,6 +627,7 @@ esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
 
   char dest_uri[512];
   if (httpd_req_get_hdr_value_str(req, "Destination", dest_uri, sizeof(dest_uri)) == ESP_OK) {
+    // Traitement similaire à MOVE pour obtenir le chemin de destination
     const char *path_start = strstr(dest_uri, inst->root_path_.c_str());
     std::string dst;
     
@@ -494,15 +642,18 @@ esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
     
     ESP_LOGD(TAG, "COPY de %s vers %s", src.c_str(), dst.c_str());
     
+    // Créer le répertoire parent si nécessaire
     std::string parent_dir = dst.substr(0, dst.find_last_of('/'));
     if (!parent_dir.empty() && !is_dir(parent_dir)) {
       mkdir(parent_dir.c_str(), 0755);
     }
     
+    // Pour les répertoires, il faudrait une copie récursive (non implémentée ici)
     if (is_dir(src)) {
       return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Directory copy not supported");
     }
     
+    // Copie de fichier
     std::ifstream in(src, std::ios::binary);
     std::ofstream out(dst, std::ios::binary);
 
