@@ -28,7 +28,7 @@ class WebDAVBox3 : public Component {
  protected:
   httpd_handle_t server_{nullptr};
   std::string root_path_{"/sdcard/"};  // Le chemin par défaut
-  std::string url_prefix_{"/webdav"};  // Le préfixe d'URL
+  std::string url_prefix_{"/"};  // Le préfixe d'URL
   uint16_t port_{8081};                // Le port par défaut
   std::string username_;
   std::string password_;
