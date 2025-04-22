@@ -20,11 +20,18 @@ void WebDAVBox3::loop() {
   // Rien pour le moment
 }
 
+esp_err_t WebDAVBox3::handle_method_not_allowed(httpd_req_t *req) {
+    ESP_LOGE(TAG, "Method not allowed: %d on URI %s", req->method, req->uri);
+    httpd_resp_set_status(req, "405 Method Not Allowed");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 void WebDAVBox3::configure_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = port_;
   config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
-  config.max_uri_handlers = 16;     // Augmentation du nombre maximum de gestionnaires URI
+  config.max_uri_handlers = 20;     // Augmentation pour les nouveaux gestionnaires
   
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start server on port %d", port_);
@@ -32,6 +39,15 @@ void WebDAVBox3::configure_http_server() {
     return;
   }
   ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
+  
+  // Gestionnaire catch-all pour les méthodes non supportées (doit être enregistré en premier)
+  httpd_uri_t method_not_allowed_uri = {
+    .uri = "/*",
+    .method = HTTP_ANY,
+    .handler = handle_method_not_allowed,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &method_not_allowed_uri);
   
   // Gestionnaire pour la racine
   httpd_uri_t root_uri = {
@@ -148,6 +164,16 @@ void WebDAVBox3::stop_server() {
   }
 }
 
+esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
+  // Set allowed methods
+  const char* allowed_methods = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, COPY, MOVE, LOCK, UNLOCK";
+  httpd_resp_set_hdr(req, "Allow", allowed_methods);
+  httpd_resp_set_hdr(req, "DAV", "1, 2");
+  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
+  httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
+}
+
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
   // Implémentation minimale pour LOCK
   ESP_LOGD(TAG, "LOCK sur %s", req->uri);
@@ -220,7 +246,6 @@ std::vector<std::string> WebDAVBox3::list_dir(const std::string &path) {
   return files;
 }
 
-// Fonction utilitaire pour générer la réponse XML pour un fichier ou répertoire
 std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size) {
   char time_buf[30];
   strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%SZ", gmtime(&modified));
@@ -246,20 +271,8 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   return xml;
 }
 
-// ========== HANDLERS ==========
-
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   httpd_resp_send(req, "ESP32 WebDAV Server OK", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
-}
-
-// Gestionnaire OPTIONS
-esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
-  // Set allowed methods
-  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, COPY, MOVE, LOCK, UNLOCK");
-  httpd_resp_set_hdr(req, "DAV", "1, 2");
-  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
-  httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
 
@@ -538,6 +551,7 @@ esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
 
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
