@@ -41,6 +41,15 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &root_uri);
 
+  // Ajout du gestionnaire OPTIONS pour répondre à la méthode 6
+  httpd_uri_t options_uri = {
+    .uri = "/*",
+    .method = HTTP_OPTIONS,
+    .handler = handle_webdav_options,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &options_uri);
+
   httpd_uri_t propfind_uri = {
     .uri = "/*",
     .method = HTTP_PROPFIND,
@@ -143,6 +152,16 @@ std::vector<std::string> WebDAVBox3::list_dir(const std::string &path) {
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   httpd_resp_send(req, "ESP32 WebDAV Server OK", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+// Nouveau gestionnaire OPTIONS
+esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
+  // Set allowed methods
+  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, MKCOL, COPY, MOVE");
+  httpd_resp_set_hdr(req, "DAV", "1, 2");
+  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
+  httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
 
