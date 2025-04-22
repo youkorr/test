@@ -24,15 +24,12 @@ void WebDAVBox3::configure_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = port_;
   config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
-
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start server on port %d", port_);
     server_ = nullptr;
     return;
   }
-
   ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
-
   httpd_uri_t root_uri = {
     .uri = "/",
     .method = HTTP_GET,
@@ -40,7 +37,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &root_uri);
-
   // Ajout du gestionnaire OPTIONS pour répondre à la méthode 6
   httpd_uri_t options_uri = {
     .uri = "/*",
@@ -49,7 +45,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &options_uri);
-
   httpd_uri_t propfind_uri = {
     .uri = "/*",
     .method = HTTP_PROPFIND,
@@ -57,7 +52,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &propfind_uri);
-
   httpd_uri_t get_uri = {
     .uri = "/*",
     .method = HTTP_GET,
@@ -65,7 +59,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &get_uri);
-
   httpd_uri_t put_uri = {
     .uri = "/*",
     .method = HTTP_PUT,
@@ -73,7 +66,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &put_uri);
-
   httpd_uri_t delete_uri = {
     .uri = "/*",
     .method = HTTP_DELETE,
@@ -81,7 +73,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &delete_uri);
-
   httpd_uri_t mkcol_uri = {
     .uri = "/*",
     .method = HTTP_MKCOL,
@@ -89,7 +80,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &mkcol_uri);
-
   httpd_uri_t move_uri = {
     .uri = "/*",
     .method = HTTP_MOVE,
@@ -97,7 +87,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &move_uri);
-
   httpd_uri_t copy_uri = {
     .uri = "/*",
     .method = HTTP_COPY,
@@ -105,6 +94,24 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &copy_uri);
+  
+  // Gestionnaire pour LOCK
+  httpd_uri_t lock_uri = {
+    .uri = "/*",
+    .method = HTTP_LOCK,
+    .handler = handle_webdav_lock,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &lock_uri);
+  
+  // Gestionnaire pour UNLOCK
+  httpd_uri_t unlock_uri = {
+    .uri = "/*",
+    .method = HTTP_UNLOCK,
+    .handler = handle_webdav_unlock,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &unlock_uri);
 }
 
 void WebDAVBox3::start_server() {
@@ -118,6 +125,39 @@ void WebDAVBox3::stop_server() {
     httpd_stop(server_);
     server_ = nullptr;
   }
+}
+
+esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
+  // Implémentation minimale pour LOCK
+  ESP_LOGD(TAG, "LOCK sur %s", req->uri);
+  
+  // Réponse minimaliste pour indiquer un verrouillage réussi
+  std::string response = "<?xml version=\"1.0\" encoding=\"utf-8\" ?>\n"
+                         "<D:prop xmlns:D=\"DAV:\">\n"
+                         "  <D:lockdiscovery>\n"
+                         "    <D:activelock>\n"
+                         "      <D:locktype><D:write/></D:locktype>\n"
+                         "      <D:lockscope><D:exclusive/></D:lockscope>\n"
+                         "      <D:depth>0</D:depth>\n"
+                         "      <D:timeout>Second-600</D:timeout>\n"
+                         "    </D:activelock>\n"
+                         "  </D:lockdiscovery>\n"
+                         "</D:prop>";
+  
+  httpd_resp_set_type(req, "application/xml");
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_send(req, response.c_str(), response.length());
+  return ESP_OK;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_unlock(httpd_req_t *req) {
+  // Implémentation minimale pour UNLOCK
+  ESP_LOGD(TAG, "UNLOCK sur %s", req->uri);
+  
+  // Réponse simple indiquant que le déverrouillage a réussi
+  httpd_resp_set_status(req, "204 No Content");
+  httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
 }
 
 std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path) {
