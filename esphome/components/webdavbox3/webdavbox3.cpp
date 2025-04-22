@@ -42,7 +42,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &root_uri);
 
   httpd_uri_t propfind_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
@@ -50,7 +50,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &propfind_uri);
 
   httpd_uri_t get_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_GET,
     .handler = handle_webdav_get,
     .user_ctx = this
@@ -58,7 +58,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &get_uri);
 
   httpd_uri_t put_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_PUT,
     .handler = handle_webdav_put,
     .user_ctx = this
@@ -66,7 +66,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &put_uri);
 
   httpd_uri_t delete_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_DELETE,
     .handler = handle_webdav_delete,
     .user_ctx = this
@@ -74,7 +74,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &delete_uri);
 
   httpd_uri_t mkcol_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_MKCOL,
     .handler = handle_webdav_mkcol,
     .user_ctx = this
@@ -82,7 +82,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &mkcol_uri);
 
   httpd_uri_t move_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_MOVE,
     .handler = handle_webdav_move,
     .user_ctx = this
@@ -90,12 +90,21 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &move_uri);
 
   httpd_uri_t copy_uri = {
-    .uri = "/*",
+    .uri = "/files/*",  // URI spécifique pour les fichiers
     .method = HTTP_COPY,
     .handler = handle_webdav_copy,
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &copy_uri);
+
+  // Gestion des méthodes non autorisées
+  httpd_uri_t method_not_allowed_uri = {
+    .uri = "/*",
+    .method = HTTP_ANY,  // Capte toutes les méthodes non définies
+    .handler = handle_method_not_allowed,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &method_not_allowed_uri);
 }
 
 void WebDAVBox3::start_server() {
@@ -277,8 +286,13 @@ esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
   return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Copy failed");
 }
 
+esp_err_t WebDAVBox3::handle_method_not_allowed(httpd_req_t *req) {
+  return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+}
+
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
