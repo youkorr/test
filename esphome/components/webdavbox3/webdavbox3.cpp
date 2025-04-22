@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <fstream>
+#include "esp_http_server.h"
 
 namespace esphome {
 namespace webdavbox3 {
