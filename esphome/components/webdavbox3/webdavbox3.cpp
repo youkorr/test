@@ -123,7 +123,9 @@ void WebDAVBox3::stop_server() {
 
 std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path) {
   std::string uri = req->uri;
-  std::string path = root_path + uri;
+  // Supprimer le préfixe '/' si nécessaire pour éviter les chemins relatifs erronés
+  if (uri[0] == '/') uri = uri.substr(1);
+  std::string path = root_path + "/" + uri;
   return path;
 }
 
@@ -187,7 +189,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   if (!file)
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
 
-  char buffer[1024];
+  char buffer[2048]; // Taille de tampon augmentée pour améliorer les transferts
   size_t read_bytes;
   httpd_resp_set_type(req, "application/octet-stream");
 
@@ -210,10 +212,14 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
   if (!file)
     return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
 
-  char buffer[1024];
+  char buffer[2048];  // Tampon plus grand pour l'efficacité
   int received;
 
   while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
+    if (received < 0) {
+      fclose(file);
+      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive data");
+    }
     fwrite(buffer, 1, received, file);
   }
 
@@ -228,12 +234,20 @@ esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
 
   ESP_LOGD(TAG, "DELETE %s", path.c_str());
 
-  if (remove(path.c_str()) == 0) {
-    httpd_resp_send(req, "Deleted", HTTPD_RESP_USE_STRLEN);
-    return ESP_OK;
+  // Si c'est un répertoire, utiliser rmdir
+  if (is_dir(path)) {
+    if (rmdir(path.c_str()) == 0) {
+      httpd_resp_send(req, "Directory deleted", HTTPD_RESP_USE_STRLEN);
+      return ESP_OK;
+    }
+  } else {
+    if (remove(path.c_str()) == 0) {
+      httpd_resp_send(req, "Deleted", HTTPD_RESP_USE_STRLEN);
+      return ESP_OK;
+    }
   }
 
-  return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File/Directory not found");
 }
 
 esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
@@ -273,13 +287,12 @@ esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
   char dest_uri[512];
   if (httpd_req_get_hdr_value_str(req, "Destination", dest_uri, sizeof(dest_uri)) == ESP_OK) {
     std::string dst = inst->root_path_ + std::string(dest_uri);
-    std::ifstream in(src, std::ios::binary);
-    std::ofstream out(dst, std::ios::binary);
 
-    if (!in || !out)
-      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Copy failed");
+    // Copier le fichier avec une approche basique
+    std::ifstream src_file(src, std::ios::binary);
+    std::ofstream dst_file(dst, std::ios::binary);
+    dst_file << src_file.rdbuf();
 
-    out << in.rdbuf();
     httpd_resp_send(req, "Copied", HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
   }
@@ -293,6 +306,7 @@ esp_err_t WebDAVBox3::handle_method_not_allowed(httpd_req_t *req) {
 
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
