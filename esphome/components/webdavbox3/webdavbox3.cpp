@@ -9,9 +9,6 @@
 namespace esphome {
 namespace webdavbox3 {
 
-#ifndef HTTP_ANY
-#define HTTP_ANY 0xFF
-#endif
 
 static const char *const TAG = "webdavbox3";
 
@@ -47,7 +44,7 @@ void WebDAVBox3::configure_http_server() {
   // Catch-all handler for unsupported methods
   httpd_uri_t method_not_allowed_uri = {
     .uri = "/*",
-    .method = 0xFF,
+    .method = HTTP_ANY,
     .handler = [](httpd_req_t *req) {
       return static_cast<WebDAVBox3*>(req->user_ctx)->handle_method_not_allowed(req);
     },
