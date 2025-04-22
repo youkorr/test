@@ -46,10 +46,17 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &options_uri);
   httpd_uri_t propfind_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &propfind_uri_wildcard);
+  httpd_uri_t propfind_uri_wildcard = {
+  .uri = "/*",
+  .method = HTTP_PROPFIND,
+  .handler = handle_webdav_propfind,
+  .user_ctx = this
   };
   httpd_register_uri_handler(server_, &propfind_uri);
   httpd_uri_t get_uri = {
