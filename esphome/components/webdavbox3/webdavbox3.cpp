@@ -330,17 +330,26 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
 
-  ESP_LOGD(TAG, "GET %s", path.c_str());
+  ESP_LOGD(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
   
   // Vérifier si c'est un répertoire
   if (is_dir(path)) {
-    // Rediriger vers PROPFIND
+    ESP_LOGD(TAG, "C'est un répertoire, redirection vers PROPFIND");
     return handle_webdav_propfind(req);
   }
 
-  FILE *file = fopen(path.c_str(), "rb");
-  if (!file)
+  // Vérifier explicitement si le fichier existe
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Fichier non trouvé: %s", path.c_str());
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  }
+
+  FILE *file = fopen(path.c_str(), "rb");
+  if (!file) {
+    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s", path.c_str());
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  }
 
   // Obtenir la taille du fichier
   fseek(file, 0, SEEK_END);
