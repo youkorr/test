@@ -1,5 +1,4 @@
 #pragma once
-
 #include "esphome/core/component.h"
 #include <esp_http_server.h>
 #include "esphome/core/helpers.h"
@@ -11,7 +10,6 @@
 #include "esp_vfs_fat.h"
 #include "esp_netif.h"
 
-
 namespace esphome {
 namespace webdavbox3 {
 
@@ -20,16 +18,14 @@ class WebDAVBox3 : public Component {
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
-
   void set_root_path(const std::string &path) { root_path_ = path; }
   void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
-
   void enable_authentication(bool enabled) { auth_enabled_ = enabled; }  // Nouveauté pour activer/désactiver l'authentification
 
- private:
+ protected:
   httpd_handle_t server_{nullptr};
   std::string root_path_{"/sdcard/"};  // Le chemin par défaut
   std::string url_prefix_{"/webdav"};  // Le préfixe d'URL
@@ -46,11 +42,6 @@ class WebDAVBox3 : public Component {
   // Authentication helpers
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
-
-  // WebDAV server methods
-  void configure_http_server();
-  void start_server();
-  void stop_server();
 
   // WebDAV handler methods
   static esp_err_t handle_root(httpd_req_t *req);
@@ -70,11 +61,6 @@ class WebDAVBox3 : public Component {
   static bool is_dir(const std::string &path);
   static std::vector<std::string> list_dir(const std::string &path);
   static std::string generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size);
-
- protected:
-  uint16_t port_{8081};
-  std::string root_path_{"/sdcard"};
-  httpd_handle_t server_{nullptr};
 };
 
 }  // namespace webdavbox3
