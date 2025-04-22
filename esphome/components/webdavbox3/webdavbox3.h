@@ -57,6 +57,8 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_move(httpd_req_t *req);
   static esp_err_t handle_webdav_copy(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req); 
+  static esp_err_t handle_webdav_lock(httpd_req_t *req);     // Pour la méthode LOCK (12)
+  static esp_err_t handle_webdav_unlock(httpd_req_t *req);   // Pour la méthode UNLOCK
 
   // Handle method not allowed
   static esp_err_t handle_method_not_allowed(httpd_req_t *req);  // Déclaration ajoutée ici
