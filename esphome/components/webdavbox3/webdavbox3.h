@@ -19,9 +19,33 @@ class WebDAVBox3 : public Component {
  public:
   void setup() override;
   void loop() override;
+  float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
 
+  void set_root_path(const std::string &path) { root_path_ = path; }
+  void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
   void set_port(uint16_t port) { port_ = port; }
-  void set_root_path(const std::string &root_path) { root_path_ = root_path; }
+  void set_username(const std::string &username) { username_ = username; }
+  void set_password(const std::string &password) { password_ = password; }
+
+  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }  // Nouveauté pour activer/désactiver l'authentification
+
+ private:
+  httpd_handle_t server_{nullptr};
+  std::string root_path_{"/sdcard/"};  // Le chemin par défaut
+  std::string url_prefix_{"/webdav"};  // Le préfixe d'URL
+  uint16_t port_{8081};                // Le port par défaut
+  std::string username_;
+  std::string password_;
+  bool auth_enabled_{false};           // Si l'authentification est activée
+
+  // HTTP server configuration
+  void configure_http_server();
+  void start_server();
+  void stop_server();
+
+  // Authentication helpers
+  bool authenticate(httpd_req_t *req);
+  esp_err_t send_auth_required_response(httpd_req_t *req);
 
   // WebDAV server methods
   void configure_http_server();
