@@ -93,7 +93,7 @@ void WebDAVBox3::configure_http_server() {
     // Gestionnaire pour la racine
     httpd_uri_t root_uri = {
         .uri       = "/",
-        .method    = HTTP_ANY,
+        .method    = HTTP_ALL_METHODS,
         .handler   = http_req_handler,
         .user_ctx  = this
     };
@@ -102,7 +102,7 @@ void WebDAVBox3::configure_http_server() {
     // Gestionnaire générique pour toutes les URI
     httpd_uri_t wildcard_uri = {
         .uri       = "/*",
-        .method    = HTTP_ANY,
+        .method    = HTTP_ALL_METHODS,
         .handler   = http_req_handler,
         .user_ctx  = this
     };
