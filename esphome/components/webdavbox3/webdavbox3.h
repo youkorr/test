@@ -63,6 +63,9 @@ protected:
   static esp_err_t handle_method_not_allowed(httpd_req_t *req);
   static esp_err_t handle_webdav_list(httpd_req_t *req);
 
+  static const httpd_err_code_t HTTPD_412_PRECONDITION_FAILED = (httpd_err_code_t)412;
+
+
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
   static std::vector<std::string> list_dir(const std::string &path);
