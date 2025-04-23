@@ -10,8 +10,6 @@ namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
-
-
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
     esp_netif_ip_info_t ip_info;
     esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
@@ -441,8 +439,25 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
         overwrite = (overwrite_header[0] == 'T' || overwrite_header[0] == 't');
     }
     
+    // Vérifier si la destination existe déjà
+    struct stat dest_stat;
+    bool dest_exists = (stat(dest_path.c_str(), &dest_stat) == 0);
     
-
+    if (dest_exists && !overwrite) {
+        httpd_resp_send_err(req, HTTPD_412_PRECONDITION_FAILED, "Destination exists and Overwrite is F");
+        return ESP_FAIL;
+    }
+    
+    // Supprimer la destination si elle existe et que overwrite est true
+    if (dest_exists) {
+        if (S_ISDIR(dest_stat.st_mode)) {
+            std::string cmd = "rm -rf \"" + dest_path + "\"";
+            system(cmd.c_str());
+        } else {
+            remove(dest_path.c_str());
+        }
+    }
+    
     // Créer le répertoire parent de la destination si nécessaire
     std::string dest_parent = dest_path.substr(0, dest_path.find_last_of("/\\"));
     if (!dest_parent.empty()) {
@@ -466,6 +481,9 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    httpd_resp_set_status(req, dest_exists ? "204 No Content" : "201 Created");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
 }
 
 void WebDAVBox3::configure_http_server() {
@@ -584,7 +602,6 @@ void WebDAVBox3::loop() {
 
 } // namespace webdavbox3
 } // namespace esphome
-
 
 
 
