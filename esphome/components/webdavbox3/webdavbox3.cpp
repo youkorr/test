@@ -64,6 +64,16 @@ void WebDAVBox3::configure_http_server() {
   config.server_port = port_;
   config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
   config.max_uri_handlers = 16;     // Augmentation du nombre maximum de gestionnaires URI
+  config.lru_purge_enable = true;   // Active le nettoyage LRU pour éviter les problèmes de mémoire
+  config.recv_wait_timeout = 30;    // Augmente le timeout pour les fichiers volumineux
+  config.send_wait_timeout = 30;    // Augmente le timeout pour les fichiers volumineux
+  
+  // Vérifier que le serveur n'est pas déjà démarré
+  if (server_ != nullptr) {
+    ESP_LOGW(TAG, "Server already started, stopping previous instance");
+    httpd_stop(server_);
+    server_ = nullptr;
+  }
   
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start server on port %d", port_);
@@ -125,6 +135,14 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &get_uri);
   
+  httpd_uri_t head_uri = {
+    .uri = "/*",
+    .method = HTTP_HEAD,
+    .handler = handle_webdav_head, // Vous devez implémenter cette méthode
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &head_uri);
+  
   httpd_uri_t put_uri = {
     .uri = "/*",
     .method = HTTP_PUT,
@@ -181,6 +199,8 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &unlock_uri);
+  
+  ESP_LOGI(TAG, "Tous les gestionnaires WebDAV ont été enregistrés");
 }
 
 void WebDAVBox3::start_server() {
