@@ -38,7 +38,8 @@ class WebDAVBox3 : public Component {
   void configure_http_server();
   void start_server();
   void stop_server();
-  
+
+  static esp_err_t http_req_handler(httpd_req_t *req);
   static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req);
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
