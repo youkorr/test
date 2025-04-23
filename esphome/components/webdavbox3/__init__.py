@@ -2,7 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_USERNAME, CONF_PASSWORD, CONF_PORT
 
-CODEOWNERS = ["@your_username"]
+CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["web_server_base", "sd_mmc_card"]
 MULTI_CONF = False  # Si tu prévois un seul composant, sinon mets True si c'est une liste
 
