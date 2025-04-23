@@ -7,7 +7,7 @@
 #include "esp_vfs.h"
 #include <sys/stat.h>
 #include <dirent.h>
-#include <base64.h>
+#include "mbedtls/base64.h"  // ESP-IDF base64 implementation
 
 namespace esphome {
 namespace webdavbox3 {
@@ -24,7 +24,28 @@ void WebDAVBox3::setup() {
     ESP_LOGD(TAG, "Authentication enabled with username: %s", this->username_.c_str());
     // Pre-compute base64 auth string if authentication is enabled
     std::string auth_string = this->username_ + ":" + this->password_;
-    this->auth_base64_ = base64::encode(auth_string);
+    
+    // Use mbedtls base64 encode function
+    size_t output_len;
+    // First calculate the required output length
+    mbedtls_base64_encode(nullptr, 0, &output_len, 
+                         (const unsigned char*)auth_string.c_str(), auth_string.length());
+                         
+    // Allocate buffer with room for null terminator
+    unsigned char* base64_buf = new unsigned char[output_len + 1];
+    
+    // Perform the actual encoding
+    mbedtls_base64_encode(base64_buf, output_len, &output_len, 
+                         (const unsigned char*)auth_string.c_str(), auth_string.length());
+    
+    // Null terminate the string
+    base64_buf[output_len] = 0;
+    
+    // Store the base64 encoded string
+    this->auth_base64_ = std::string((char*)base64_buf);
+    
+    // Clean up
+    delete[] base64_buf;
   } else {
     ESP_LOGD(TAG, "Authentication disabled");
   }
@@ -371,7 +392,29 @@ esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
   return ESP_OK;
 }
 
-// Other handler implementations would go here...
+// Placeholder for PROPFIND handler
+esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
+  // Minimal implementation for now
+  httpd_resp_set_status(req, "207 Multi-Status");
+  httpd_resp_set_type(req, "application/xml; charset=utf-8");
+  
+  // Simple response for testing
+  const char *response = "<?xml version=\"1.0\"?>\n"
+                        "<d:multistatus xmlns:d=\"DAV:\">\n"
+                        "  <d:response>\n"
+                        "    <d:href>/</d:href>\n"
+                        "    <d:propstat>\n"
+                        "      <d:prop>\n"
+                        "        <d:resourcetype><d:collection/></d:resourcetype>\n"
+                        "      </d:prop>\n"
+                        "      <d:status>HTTP/1.1 200 OK</d:status>\n"
+                        "    </d:propstat>\n"
+                        "  </d:response>\n"
+                        "</d:multistatus>";
+  
+  httpd_resp_send(req, response, strlen(response));
+  return ESP_OK;
+}
 
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "DAV", "1, 2");
@@ -412,8 +455,7 @@ std::vector<std::string> WebDAVBox3::list_dir(const std::string &path) {
   return files;
 }
 
-// Implementation of the PROPFIND handler and XML generation would go here...
-// For brevity, I've left these out but they would need to be implemented
+// Other handlers would be implemented here
 
 }  // namespace webdavbox3
 }  // namespace esphome
