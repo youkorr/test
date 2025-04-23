@@ -8,7 +8,6 @@
 namespace esphome {
 namespace webdavbox3 {
 
-from esphome.core import coroutine_with_priority, CORE
 from .. import sd_mmc_card
 
 static const char *const TAG = "webdavbox3";
