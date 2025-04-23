@@ -2,7 +2,6 @@
 #include "esphome/core/component.h"
 #include <esp_http_server.h>
 #include "esphome/core/helpers.h"
-#include "esphome/core/base64.h"
 #include <string>
 #include <vector>
 #include "driver/sdmmc_host.h"
@@ -15,7 +14,7 @@ namespace esphome {
 namespace webdavbox3 {
 
 class WebDAVBox3 : public Component {
-public:
+ public:
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
@@ -24,32 +23,30 @@ public:
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
-  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
+  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }  // Nouveauté pour activer/désactiver l'authentification
 
-protected:
+ protected:
   httpd_handle_t server_{nullptr};
-  std::string root_path_{"/sdcard/"};
-  std::string url_prefix_{"/"};
-  uint16_t port_{8081};
+  std::string root_path_{"/sdcard/"};  // Le chemin par défaut
+  std::string url_prefix_{"/"};  // Le préfixe d'URL
+  uint16_t port_{8081};                // Le port par défaut
   std::string username_;
   std::string password_;
-  bool auth_enabled_{false};
-  std::string auth_base64_;  // Encodage Base64 des credentials
-  static WebDAVBox3* instance;
+  bool auth_enabled_{false};           // Si l'authentification est activée
 
+  // HTTP server configuration
   void configure_http_server();
   void start_server();
   void stop_server();
+
+  // Authentication helpers
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
-  std::string uri_to_filepath(const char* uri);
 
-  void register_handler(const char *method, esp_err_t (*handler)(httpd_req_t *req));
-
+  // WebDAV handler methods
   static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req);
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
-  static esp_err_t handle_webdav_proppatch(httpd_req_t *req);
   static esp_err_t handle_webdav_get(httpd_req_t *req);
   static esp_err_t handle_webdav_put(httpd_req_t *req);
   static esp_err_t handle_webdav_delete(httpd_req_t *req);
@@ -58,11 +55,8 @@ protected:
   static esp_err_t handle_webdav_copy(httpd_req_t *req);
   static esp_err_t handle_webdav_lock(httpd_req_t *req);
   static esp_err_t handle_webdav_unlock(httpd_req_t *req);
-  static esp_err_t handle_method_not_allowed(httpd_req_t *req);
-  static esp_err_t handle_webdav_list(httpd_req_t *req);
 
-  static const httpd_err_code_t HTTPD_412_PRECONDITION_FAILED = (httpd_err_code_t)412;
-
+  // Helper methods
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
   static std::vector<std::string> list_dir(const std::string &path);
@@ -71,7 +65,6 @@ protected:
 
 }  // namespace webdavbox3
 }  // namespace esphome
-
 
 
 
