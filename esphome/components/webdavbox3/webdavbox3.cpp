@@ -1,9 +1,16 @@
 #include "webdavbox3.h"
 #include "esphome/core/log.h"
+#include "esp_log.h
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
 #include <fstream>
+#include <errno.h>
+#include "esp_err.h"
+#include "esp_netif.h"
+#include <ctime>
+#include <chrono>
+#include <sys/stat.h>
 
 namespace esphome {
 namespace webdavbox3 {
