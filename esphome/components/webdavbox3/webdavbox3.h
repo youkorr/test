@@ -57,6 +57,12 @@ class WebDAVBox3 : public Component {
   static bool is_dir(const std::string &path);
   static std::vector<std::string> list_dir(const std::string &path);
   static std::string generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size);
+
+  static const httpd_method_t HTTP_ALL_METHODS = static_cast<httpd_method_t>(
+    HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_DELETE | 
+    HTTP_PROPFIND | HTTP_PROPPATCH | HTTP_MKCOL | 
+    HTTP_COPY | HTTP_MOVE | HTTP_LOCK | HTTP_UNLOCK
+
 };
 
 }  // namespace webdavbox3
