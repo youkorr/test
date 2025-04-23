@@ -1,10 +1,10 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_USERNAME, CONF_PASSWORD, CONF_PORT
-from esphome.components import sd_mmc_card
+from esphome.components import sd_card
 
-DEPENDENCIES = ["sd_mmc_card"]
-AUTO_LOAD = ["sd_mmc_card"]
+DEPENDENCIES = ["sd_card"]
+AUTO_LOAD = ["sd_card"]
 
 CONF_SD_CARD_ID = "sd_card_id"
 
@@ -13,7 +13,7 @@ WebDAVBox3 = webdavbox_ns.class_("WebDAVBox3", cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(WebDAVBox3),
-    cv.Required(CONF_SD_CARD_ID): cv.use_id(sd_mmc_card.SDMMCCard),
+    cv.Required(CONF_SD_CARD_ID): cv.use_id(sd_card.SDCard),
     cv.Optional("root_path", default="/sdcard"): cv.string,
     cv.Optional("url_prefix", default="/"): cv.string,
     cv.Optional(CONF_PORT, default=8081): cv.port,
