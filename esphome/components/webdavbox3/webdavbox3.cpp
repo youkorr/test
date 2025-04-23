@@ -89,14 +89,7 @@ void WebDAVBox3::configure_http_server() {
         return;
     }
     ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
-   httpd_uri_t root_uri = {
-       .uri = "/",
-       .method = HTTP_GET,
-       .handler = handle_root,
-       .user_ctx = this
 
-  };
-  httpd_register_uri_handler(server_, &root_uri);
     // Gestionnaire pour la racine
     httpd_uri_t root_uri = {
         .uri       = "/",
@@ -117,59 +110,61 @@ void WebDAVBox3::configure_http_server() {
 
     ESP_LOGI(TAG, "Tous les gestionnaires WebDAV ont été enregistrés");
 }
+
 void WebDAVBox3::start_server() {
-  if (server_ != nullptr)
-    return;
-  configure_http_server();
+    if (server_ != nullptr)
+        return;
+    configure_http_server();
 }
 
 void WebDAVBox3::stop_server() {
-  if (server_ != nullptr) {
-    httpd_stop(server_);
-    server_ = nullptr;
-  }
+    if (server_ != nullptr) {
+        httpd_stop(server_);
+        server_ = nullptr;
+    }
 }
-esp_err_t esphome::webdavbox3::WebDAVBox3::http_req_handler(httpd_req_t *req) {
-  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  
-  ESP_LOGD("webdavbox3", "Requête reçue: %s %s", req->method == HTTP_GET ? "GET" :
-                                                 req->method == HTTP_PUT ? "PUT" :
-                                                 req->method == HTTP_DELETE ? "DELETE" :
-                                                 req->method == HTTP_PROPFIND ? "PROPFIND" :
-                                                 req->method == HTTP_MKCOL ? "MKCOL" :
-                                                 req->method == HTTP_MOVE ? "MOVE" :
-                                                 req->method == HTTP_COPY ? "COPY" :
-                                                 req->method == HTTP_LOCK ? "LOCK" :
-                                                 req->method == HTTP_UNLOCK ? "UNLOCK" :
-                                                 req->method == HTTP_OPTIONS ? "OPTIONS" :
-                                                 "UNKNOWN",
-           req->uri);
 
-  // Gérer les différentes méthodes HTTP
-  switch (req->method) {
-    case HTTP_GET:
-      return inst->handle_webdav_get(req);
-    case HTTP_PUT:
-      return inst->handle_webdav_put(req);
-    case HTTP_DELETE:
-      return inst->handle_webdav_delete(req);
-    case HTTP_PROPFIND:
-      return inst->handle_webdav_propfind(req);
-    case HTTP_MKCOL:
-      return inst->handle_webdav_mkcol(req);
-    case HTTP_MOVE:
-      return inst->handle_webdav_move(req);
-    case HTTP_COPY:
-      return inst->handle_webdav_copy(req);
-    case HTTP_LOCK:
-      return inst->handle_webdav_lock(req);
-    case HTTP_UNLOCK:
-      return inst->handle_webdav_unlock(req);
-    case HTTP_OPTIONS:
-      return inst->handle_webdav_options(req);
-    default:
-      return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
-  }
+esp_err_t esphome::webdavbox3::WebDAVBox3::http_req_handler(httpd_req_t *req) {
+    auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+    
+    ESP_LOGD("webdavbox3", "Requête reçue: %s %s", req->method == HTTP_GET ? "GET" :
+                                                   req->method == HTTP_PUT ? "PUT" :
+                                                   req->method == HTTP_DELETE ? "DELETE" :
+                                                   req->method == HTTP_PROPFIND ? "PROPFIND" :
+                                                   req->method == HTTP_MKCOL ? "MKCOL" :
+                                                   req->method == HTTP_MOVE ? "MOVE" :
+                                                   req->method == HTTP_COPY ? "COPY" :
+                                                   req->method == HTTP_LOCK ? "LOCK" :
+                                                   req->method == HTTP_UNLOCK ? "UNLOCK" :
+                                                   req->method == HTTP_OPTIONS ? "OPTIONS" :
+                                                   "UNKNOWN",
+             req->uri);
+
+    // Gérer les différentes méthodes HTTP
+    switch (req->method) {
+        case HTTP_GET:
+            return inst->handle_webdav_get(req);
+        case HTTP_PUT:
+            return inst->handle_webdav_put(req);
+        case HTTP_DELETE:
+            return inst->handle_webdav_delete(req);
+        case HTTP_PROPFIND:
+            return inst->handle_webdav_propfind(req);
+        case HTTP_MKCOL:
+            return inst->handle_webdav_mkcol(req);
+        case HTTP_MOVE:
+            return inst->handle_webdav_move(req);
+        case HTTP_COPY:
+            return inst->handle_webdav_copy(req);
+        case HTTP_LOCK:
+            return inst->handle_webdav_lock(req);
+        case HTTP_UNLOCK:
+            return inst->handle_webdav_unlock(req);
+        case HTTP_OPTIONS:
+            return inst->handle_webdav_options(req);
+        default:
+            return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method not allowed");
+    }
 }
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
   // Implémentation minimale pour LOCK
