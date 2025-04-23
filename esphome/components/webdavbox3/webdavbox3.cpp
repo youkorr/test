@@ -111,7 +111,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaires PROPFIND (pour la racine et tous les chemins)
   httpd_uri_t propfind_uri = {
-    .uri = "/",
+    .uri = "/*",
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
