@@ -38,21 +38,30 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
-  // Vérifier si le répertoire racine existe
-  struct stat st;
-  if (stat(root_path_.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Le répertoire racine n'existe pas: %s (errno: %d)", root_path_.c_str(), errno);
-    // Tentative de création du répertoire racine
-    if (mkdir(root_path_.c_str(), 0755) != 0) {
-      ESP_LOGE(TAG, "Impossible de créer le répertoire racine: %s (errno: %d)", root_path_.c_str(), errno);
-    }
-  } else if (!S_ISDIR(st.st_mode)) {
-    ESP_LOGE(TAG, "Le chemin racine n'est pas un répertoire: %s", root_path_.c_str());
-  }
+  ESP_LOGI(TAG, "Initializing WebDAV server on ESP-IDF");
   
-  ESP_LOGI(TAG, "Utilisation du montage SD existant à %s", root_path_.c_str());
+  // Vérifier si la carte SD est montée
+  if (!sd_card_) {
+    ESP_LOGE(TAG, "SD card component not set!");
+    this->mark_failed();
+    return;
+  }
+
+  if (!sd_card_->is_mounted()) {
+    ESP_LOGE(TAG, "SD card is not mounted!");
+    this->mark_failed();
+    return;
+  }
+
+  ESP_LOGI(TAG, "SD card is mounted at %s", this->root_path_.c_str());
+  
+  // Configure and start HTTP server
   this->configure_http_server();
   this->start_server();
+}
+
+void WebDAVBox3::set_sd_card(esphome::sd_mmc_card::SDMMCCard *sd_card) {
+  this->sd_card_ = sd_card;
 }
 
 void WebDAVBox3::loop() {
@@ -287,9 +296,9 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
     uri = uri.substr(1);
   }
   
-  // Si c'est la racine, retourner le chemin racine sans ajouter de '/'
+  // Si c'est la racine, retourner le chemin racine
   if (uri.empty()) {
-    return path.substr(0, path.length() - 1); // Enlever le dernier '/'
+    return path;
   }
   
   path += uri;
@@ -300,8 +309,10 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
 
 bool WebDAVBox3::is_dir(const std::string &path) {
   struct stat st;
-  if (stat(path.c_str(), &st) == 0)
+  if (stat(path.c_str(), &st) == 0) {
     return S_ISDIR(st.st_mode);
+  }
+  ESP_LOGW(TAG, "Failed to stat directory: %s (errno: %d)", path.c_str(), errno);
   return false;
 }
 
