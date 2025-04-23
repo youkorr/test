@@ -419,7 +419,6 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
-
   ESP_LOGD(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
   
   // Vérifier si c'est un répertoire
@@ -427,29 +426,86 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     ESP_LOGD(TAG, "C'est un répertoire, redirection vers PROPFIND");
     return handle_webdav_propfind(req);
   }
-
+  
   // Vérifier explicitement si le fichier existe
   struct stat st;
   if (stat(path.c_str(), &st) != 0) {
     ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
-
+  
   FILE *file = fopen(path.c_str(), "rb");
   if (!file) {
     ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
-
+  
   // Obtenir la taille du fichier
   fseek(file, 0, SEEK_END);
   size_t file_size = ftell(file);
   fseek(file, 0, SEEK_SET);
   
+  // Déterminer le type MIME en fonction de l'extension
+  std::string content_type = "application/octet-stream"; // Type par défaut
+  std::string extension = "";
+  
+  // Extraire l'extension du fichier
+  size_t dot_pos = path.find_last_of(".");
+  if (dot_pos != std::string::npos) {
+    extension = path.substr(dot_pos + 1);
+    // Convertir l'extension en minuscules pour la comparaison
+    std::transform(extension.begin(), extension.end(), extension.begin(), 
+                  [](unsigned char c) { return std::tolower(c); });
+    
+    // Attribuer le type MIME selon l'extension
+    if (extension == "mp3") {
+      content_type = "audio/mpeg";
+    } else if (extension == "mp4") {
+      content_type = "video/mp4";
+    } else if (extension == "wav" || extension == "wave") {
+      content_type = "audio/wav";
+    } else if (extension == "txt") {
+      content_type = "text/plain";
+    } else if (extension == "html" || extension == "htm") {
+      content_type = "text/html";
+    } else if (extension == "pdf") {
+      content_type = "application/pdf";
+    } else if (extension == "jpg" || extension == "jpeg") {
+      content_type = "image/jpeg";
+    } else if (extension == "png") {
+      content_type = "image/png";
+    } else if (extension == "gif") {
+      content_type = "image/gif";
+    } else if (extension == "json") {
+      content_type = "application/json";
+    } else if (extension == "xml") {
+      content_type = "application/xml";
+    } else if (extension == "css") {
+      content_type = "text/css";
+    } else if (extension == "js") {
+      content_type = "application/javascript";
+    }
+  }
+  
+  ESP_LOGD(TAG, "Type de fichier détecté: %s pour l'extension %s", content_type.c_str(), extension.c_str());
+  
   // Définir le type de contenu et la longueur
-  httpd_resp_set_type(req, "application/octet-stream");
+  httpd_resp_set_type(req, content_type.c_str());
   httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
-
+  
+  // Ajouter l'en-tête Content-Disposition pour les fichiers média
+  if (extension == "mp3" || extension == "mp4" || extension == "wav" || extension == "wave") {
+    // Extraire le nom du fichier du chemin
+    std::string filename = path;
+    size_t last_slash = path.find_last_of("/\\");
+    if (last_slash != std::string::npos) {
+      filename = path.substr(last_slash + 1);
+    }
+    
+    std::string disposition = "attachment; filename=\"" + filename + "\"";
+    httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
+  }
+  
   char buffer[1024];
   size_t read_bytes;
   size_t total_sent = 0;
@@ -463,14 +519,14 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     }
     total_sent += read_bytes;
   }
-
-  ESP_LOGD(TAG, "Fichier envoyé: %s, taille: %zu octets", path.c_str(), total_sent);
+  
+  ESP_LOGD(TAG, "Fichier envoyé: %s, taille: %zu octets, type: %s", 
+           path.c_str(), total_sent, content_type.c_str());
   
   fclose(file);
   httpd_resp_send_chunk(req, nullptr, 0);
   return ESP_OK;
 }
-
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
