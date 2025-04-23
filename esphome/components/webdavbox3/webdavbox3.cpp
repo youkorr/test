@@ -15,7 +15,7 @@ namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
-static const httpd_err_code_t HTTPD_412_PRECONDITION_FAILED = (httpd_err_code_t)412;
+
 
 
 httpd_resp_send_err(req, HTTPD_412_PRECONDITION_FAILED, "Destination exists and Overwrite is F");
