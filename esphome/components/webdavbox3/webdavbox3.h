@@ -14,7 +14,7 @@ namespace esphome {
 namespace webdavbox3 {
 
 class WebDAVBox3 : public Component {
- public:
+public:
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
@@ -25,7 +25,7 @@ class WebDAVBox3 : public Component {
   void set_password(const std::string &password) { password_ = password; }
   void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
 
- protected:
+protected:
   httpd_handle_t server_{nullptr};
   std::string root_path_{"/sdcard/"};
   std::string url_prefix_{"/"};
@@ -33,8 +33,9 @@ class WebDAVBox3 : public Component {
   std::string username_;
   std::string password_;
   bool auth_enabled_{false};
+  static WebDAVBox3* instance;
 
-  // Ajout des méthodes de vérification des permissions
+  // Méthodes de vérification des permissions
   bool check_read_permission(const std::string &path);
   bool check_write_permission(const std::string &path);
   bool check_execute_permission(const std::string &path);
@@ -45,6 +46,7 @@ class WebDAVBox3 : public Component {
   void stop_server();
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
+  std::string uri_to_filepath(const char* uri);
 
   static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req);
@@ -59,6 +61,7 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_lock(httpd_req_t *req);
   static esp_err_t handle_webdav_unlock(httpd_req_t *req);
   static esp_err_t handle_method_not_allowed(httpd_req_t *req);
+  static esp_err_t handle_webdav_list(httpd_req_t *req);
 
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
