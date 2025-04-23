@@ -236,20 +236,27 @@ esp_err_t WebDAVBox3::handle_webdav_proppatch(httpd_req_t *req) {
 
 std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_path) {
   std::string uri = req->uri;
-  std::string path = root_path;
   
   // Décoder l'URL
   uri = url_decode(uri);
   
-  // S'assurer que le chemin se termine par un '/' si ce n'est pas déjà le cas
-  if (path.back() != '/' && !uri.empty() && uri.front() != '/')
-    path += '/';
+  // Supprimer les doubles slashes
+  while (uri.find("//") != std::string::npos) {
+    uri.replace(uri.find("//"), 2, "/");
+  }
   
-  // Éviter les doubles barres obliques
-  if (!uri.empty() && uri.front() == '/' && path.back() == '/')
+  // Construire le chemin complet
+  std::string path = root_path;
+  if (path.back() != '/' && !uri.empty() && uri.front() != '/') {
+    path += '/';
+  }
+  
+  // Ajouter l'URI sans le slash initial si présent
+  if (!uri.empty() && uri.front() == '/') {
     path += uri.substr(1);
-  else
+  } else {
     path += uri;
+  }
   
   ESP_LOGD(TAG, "Mapped URI %s to path %s", req->uri, path.c_str());
   return path;
@@ -396,54 +403,40 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
 
-  ESP_LOGD(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
+  ESP_LOGD(TAG, "GET request for %s (physical path: %s)", req->uri, path.c_str());
   
   // Vérifier si c'est un répertoire
   if (is_dir(path)) {
-    ESP_LOGD(TAG, "C'est un répertoire, redirection vers PROPFIND");
+    if (path.back() != '/') {
+      // Rediriger vers l'URL avec slash final
+      std::string new_location = std::string(req->uri) + "/";
+      httpd_resp_set_status(req, "301 Moved Permanently");
+      httpd_resp_set_hdr(req, "Location", new_location.c_str());
+      httpd_resp_send(req, NULL, 0);
+      return ESP_OK;
+    }
     return handle_webdav_propfind(req);
   }
 
-  // Vérifier explicitement si le fichier existe
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-  }
-
+  // Vérifier que le fichier existe
   FILE *file = fopen(path.c_str(), "rb");
   if (!file) {
-    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
+    ESP_LOGE(TAG, "Failed to open file: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
 
-  // Obtenir la taille du fichier
-  fseek(file, 0, SEEK_END);
-  size_t file_size = ftell(file);
-  fseek(file, 0, SEEK_SET);
-  
-  // Définir le type de contenu et la longueur
-  httpd_resp_set_type(req, "application/octet-stream");
-  httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
-
+  // Envoyer le fichier
   char buffer[1024];
   size_t read_bytes;
-  size_t total_sent = 0;
-  
   while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-    esp_err_t err = httpd_resp_send_chunk(req, buffer, read_bytes);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d", err);
+    if (httpd_resp_send_chunk(req, buffer, read_bytes) != ESP_OK) {
       fclose(file);
-      return err;
+      return ESP_FAIL;
     }
-    total_sent += read_bytes;
   }
-
-  ESP_LOGD(TAG, "Fichier envoyé: %s, taille: %zu octets", path.c_str(), total_sent);
   
   fclose(file);
-  httpd_resp_send_chunk(req, nullptr, 0);
+  httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK;
 }
 
