@@ -138,7 +138,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_uri_t head_uri = {
     .uri = "/*",
     .method = HTTP_HEAD,
-    .handler = handle_webdav_head, // Vous devez implémenter cette méthode
+    .handler = handle_webdav_get, // Utilisation de GET pour HEAD en attendant une implémentation spécifique
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &head_uri);
@@ -202,7 +202,6 @@ void WebDAVBox3::configure_http_server() {
   
   ESP_LOGI(TAG, "Tous les gestionnaires WebDAV ont été enregistrés");
 }
-
 void WebDAVBox3::start_server() {
   if (server_ != nullptr)
     return;
