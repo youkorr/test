@@ -38,6 +38,18 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
+  // Vérifier si le répertoire racine existe
+  struct stat st;
+  if (stat(root_path_.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Le répertoire racine n'existe pas: %s (errno: %d)", root_path_.c_str(), errno);
+    // Tentative de création du répertoire racine
+    if (mkdir(root_path_.c_str(), 0755) != 0) {
+      ESP_LOGE(TAG, "Impossible de créer le répertoire racine: %s (errno: %d)", root_path_.c_str(), errno);
+    }
+  } else if (!S_ISDIR(st.st_mode)) {
+    ESP_LOGE(TAG, "Le chemin racine n'est pas un répertoire: %s", root_path_.c_str());
+  }
+  
   ESP_LOGI(TAG, "Utilisation du montage SD existant à %s", root_path_.c_str());
   this->configure_http_server();
   this->start_server();
@@ -246,15 +258,23 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
   // Décoder l'URL
   uri = url_decode(uri);
   
-  // S'assurer que le chemin se termine par un '/' si ce n'est pas déjà le cas
-  if (path.back() != '/' && !uri.empty() && uri.front() != '/')
-    path += '/';
+  // Traitement spécial pour la racine "/"
+  if (uri.empty() || uri == "/") {
+    ESP_LOGD(TAG, "URI racine détectée, utilisation de %s", path.c_str());
+    return path;
+  }
   
-  // Éviter les doubles barres obliques
-  if (!uri.empty() && uri.front() == '/' && path.back() == '/')
-    path += uri.substr(1);
-  else
-    path += uri;
+  // S'assurer que le chemin se termine par un '/' si ce n'est pas déjà le cas
+  if (path.back() != '/') {
+    path += '/';
+  }
+  
+  // Supprimer le premier '/' de l'URI s'il existe
+  if (!uri.empty() && uri.front() == '/') {
+    uri = uri.substr(1);
+  }
+  
+  path += uri;
   
   ESP_LOGD(TAG, "Mapped URI %s to path %s", req->uri, path.c_str());
   return path;
@@ -550,7 +570,7 @@ esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
     }
   }
 
-  if (mkdir(path.c_str(), 0777) == 0) {
+  if (mkdir(path.c_str(), 0755) == 0) {
     ESP_LOGI(TAG, "Répertoire créé: %s", path.c_str());
     httpd_resp_set_status(req, "201 Created");
     httpd_resp_send(req, NULL, 0);
@@ -570,30 +590,23 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
   if (httpd_req_get_hdr_value_str(req, "Destination", dest_uri, sizeof(dest_uri)) == ESP_OK) {
     ESP_LOGD(TAG, "Destination brute: %s", dest_uri);
     
-    // Extraire le chemin de la partie URI de la destination
-    const char *path_start = strstr(dest_uri, inst->root_path_.c_str());
-    std::string dst;
-    
-    if (path_start) {
-      // Si le chemin racine est trouvé dans l'URI de destination
-      dst = path_start;
+    // Extraire la partie URI du chemin de destination
+    const char *uri_part = strstr(dest_uri, "//");
+    if (uri_part) {
+      // Sauter le protocole et le nom d'hôte
+      uri_part = strchr(uri_part + 2, '/');
     } else {
-      // Extraire la partie de l'URI après le nom d'hôte et le port
-      const char *uri_part = strchr(dest_uri, '/');
-      if (!uri_part) {
-        ESP_LOGE(TAG, "Format d'URI de destination invalide: %s", dest_uri);
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid destination URI");
-      }
-      
-      // Construire le chemin de destination
-      dst = inst->root_path_;
-      if (dst.back() != '/' && uri_part[0] != '/') dst += '/';
-      if (dst.back() == '/' && uri_part[0] == '/') dst += (uri_part + 1);
-      else dst += uri_part;
-      
-      // Décoder l'URL
-      dst = url_decode(dst);
+      uri_part = strchr(dest_uri, '/');
     }
+    
+    if (!uri_part) {
+      ESP_LOGE(TAG, "Format d'URI de destination invalide: %s", dest_uri);
+      return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid destination URI");
+    }
+    
+    // Construire le chemin complet
+    std::string dst_uri = uri_part;
+    std::string dst = get_file_path(httpd_req_t{.uri = dst_uri.c_str()}, inst->root_path_);
     
     ESP_LOGD(TAG, "MOVE de %s vers %s", src.c_str(), dst.c_str());
     
@@ -601,7 +614,7 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
     std::string parent_dir = dst.substr(0, dst.find_last_of('/'));
     if (!parent_dir.empty() && !is_dir(parent_dir)) {
       ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-      if (mkdir(parent_dir.c_str(), 0777) != 0) {
+      if (mkdir(parent_dir.c_str(), 0755) != 0) {
         ESP_LOGE(TAG, "Impossible de créer le répertoire parent: %s (errno: %d)", parent_dir.c_str(), errno);
       }
     }
