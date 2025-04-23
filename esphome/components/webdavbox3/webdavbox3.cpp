@@ -15,6 +15,12 @@ namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
+static const httpd_err_code_t HTTPD_412_PRECONDITION_FAILED = (httpd_err_code_t)412;
+
+
+httpd_resp_send_err(req, HTTPD_412_PRECONDITION_FAILED, "Destination exists and Overwrite is F");
+
+
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
     esp_netif_ip_info_t ip_info;
     esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
