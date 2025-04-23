@@ -10,15 +10,6 @@ namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
-#define HTTPD_412_PRECONDITION_FAILED 412
-
-WebDAVBox3* WebDAVBox3::instance = nullptr;
-
-void WebDAVBox3::setup() {
-  instance = this;
-  this->configure_http_server();
-}
-
 
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
