@@ -40,15 +40,17 @@ std::string url_decode(const std::string &src) {
 void WebDAVBox3::setup() {
   ESP_LOGI(TAG, "Initializing WebDAV server on ESP-IDF");
   
-  // Vérifier si la carte SD est montée
+  // Vérifier si la carte SD est disponible
   if (!sd_card_) {
     ESP_LOGE(TAG, "SD card component not set!");
     this->mark_failed();
     return;
   }
 
-  if (!sd_card_->is_mounted()) {
-    ESP_LOGE(TAG, "SD card is not mounted!");
+  // Vérifier si le répertoire racine existe
+  struct stat st;
+  if (stat(root_path_.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Root path does not exist: %s", root_path_.c_str());
     this->mark_failed();
     return;
   }
