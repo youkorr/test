@@ -2,6 +2,7 @@
 #include "esphome/core/component.h"
 #include <esp_http_server.h>
 #include "esphome/core/helpers.h"
+#include "esphome/core/base64.h"
 #include <string>
 #include <vector>
 #include "driver/sdmmc_host.h"
@@ -33,13 +34,8 @@ protected:
   std::string username_;
   std::string password_;
   bool auth_enabled_{false};
+  std::string auth_base64_;  // Encodage Base64 des credentials
   static WebDAVBox3* instance;
-
-  // Méthodes de vérification des permissions
-  bool check_read_permission(const std::string &path);
-  bool check_write_permission(const std::string &path);
-  bool check_execute_permission(const std::string &path);
-  bool check_parent_write_permission(const std::string &path);
 
   void configure_http_server();
   void start_server();
@@ -47,6 +43,8 @@ protected:
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
   std::string uri_to_filepath(const char* uri);
+
+  void register_handler(const char *method, esp_err_t (*handler)(httpd_req_t *req));
 
   static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req);
@@ -65,7 +63,6 @@ protected:
 
   static const httpd_err_code_t HTTPD_412_PRECONDITION_FAILED = (httpd_err_code_t)412;
 
-
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
   static std::vector<std::string> list_dir(const std::string &path);
@@ -74,6 +71,7 @@ protected:
 
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
