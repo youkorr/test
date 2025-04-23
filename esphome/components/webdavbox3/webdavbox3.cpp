@@ -449,112 +449,59 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
-  ESP_LOGD(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
   
-  // Vérifier si c'est un répertoire
-  if (is_dir(path)) {
-    ESP_LOGD(TAG, "C'est un répertoire, redirection vers PROPFIND");
+  ESP_LOGD(TAG, "GET request for path: %s (URI: %s)", path.c_str(), req->uri);
+  
+  // Vérifier si le chemin existe
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "File not found: %s (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  }
+  
+  if (S_ISDIR(st.st_mode)) {
+    ESP_LOGD(TAG, "Path is directory, redirecting to PROPFIND: %s", path.c_str());
     return handle_webdav_propfind(req);
   }
   
-  // Vérifier explicitement si le fichier existe
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-  }
-  
+  // Ouvrir le fichier
   FILE *file = fopen(path.c_str(), "rb");
   if (!file) {
-    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    ESP_LOGE(TAG, "Failed to open file: %s (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
   }
   
-  // Obtenir la taille du fichier
-  fseek(file, 0, SEEK_END);
-  size_t file_size = ftell(file);
-  fseek(file, 0, SEEK_SET);
-  
-  // Déterminer le type MIME en fonction de l'extension
-  std::string content_type = "application/octet-stream"; // Type par défaut
-  std::string extension = "";
-  
-  // Extraire l'extension du fichier
+  // Définir le type de contenu
+  const char* content_type = "application/octet-stream";
   size_t dot_pos = path.find_last_of(".");
   if (dot_pos != std::string::npos) {
-    extension = path.substr(dot_pos + 1);
-    // Convertir l'extension en minuscules pour la comparaison
-    std::transform(extension.begin(), extension.end(), extension.begin(), 
-                  [](unsigned char c) { return std::tolower(c); });
-    
-    // Attribuer le type MIME selon l'extension
-    if (extension == "mp3") {
-      content_type = "audio/mpeg";
-    } else if (extension == "mp4") {
-      content_type = "video/mp4";
-    } else if (extension == "wav" || extension == "wave") {
-      content_type = "audio/wav";
-    } else if (extension == "txt") {
-      content_type = "text/plain";
-    } else if (extension == "html" || extension == "htm") {
-      content_type = "text/html";
-    } else if (extension == "pdf") {
-      content_type = "application/pdf";
-    } else if (extension == "jpg" || extension == "jpeg") {
-      content_type = "image/jpeg";
-    } else if (extension == "png") {
-      content_type = "image/png";
-    } else if (extension == "gif") {
-      content_type = "image/gif";
-    } else if (extension == "json") {
-      content_type = "application/json";
-    } else if (extension == "xml") {
-      content_type = "application/xml";
-    } else if (extension == "css") {
-      content_type = "text/css";
-    } else if (extension == "js") {
-      content_type = "application/javascript";
-    }
+    std::string ext = path.substr(dot_pos + 1);
+    if (ext == "png" || ext == "PNG") content_type = "image/png";
+    else if (ext == "jpg" || ext == "jpeg" || ext == "JPG" || ext == "JPEG") content_type = "image/jpeg";
+    else if (ext == "gif" || ext == "GIF") content_type = "image/gif";
+    else if (ext == "mp4" || ext == "MP4") content_type = "video/mp4";
+    else if (ext == "mp3" || ext == "MP3") content_type = "audio/mpeg";
+    else if (ext == "txt" || ext == "TXT") content_type = "text/plain";
   }
   
-  ESP_LOGD(TAG, "Type de fichier détecté: %s pour l'extension %s", content_type.c_str(), extension.c_str());
+  httpd_resp_set_type(req, content_type);
+  httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
+  httpd_resp_set_hdr(req, "Content-Length", std::to_string(st.st_size).c_str());
   
-  // Définir le type de contenu et la longueur
-  httpd_resp_set_type(req, content_type.c_str());
-  httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
-  
-  // Ajouter l'en-tête Content-Disposition pour les fichiers média
-  if (extension == "mp3" || extension == "mp4" || extension == "wav" || extension == "wave") {
-    // Extraire le nom du fichier du chemin
-    std::string filename = path;
-    size_t last_slash = path.find_last_of("/\\");
-    if (last_slash != std::string::npos) {
-      filename = path.substr(last_slash + 1);
-    }
-    
-    std::string disposition = "attachment; filename=\"" + filename + "\"";
-    httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
-  }
-  
+  // Envoyer le fichier par morceaux
   char buffer[1024];
   size_t read_bytes;
-  size_t total_sent = 0;
-  
   while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-    esp_err_t err = httpd_resp_send_chunk(req, buffer, read_bytes);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d", err);
+    if (httpd_resp_send_chunk(req, buffer, read_bytes) != ESP_OK) {
       fclose(file);
-      return err;
+      ESP_LOGE(TAG, "Failed to send file chunks");
+      return ESP_FAIL;
     }
-    total_sent += read_bytes;
   }
-  
-  ESP_LOGD(TAG, "Fichier envoyé: %s, taille: %zu octets, type: %s", 
-           path.c_str(), total_sent, content_type.c_str());
   
   fclose(file);
   httpd_resp_send_chunk(req, nullptr, 0);
+  ESP_LOGD(TAG, "File sent successfully: %s", path.c_str());
   return ESP_OK;
 }
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
