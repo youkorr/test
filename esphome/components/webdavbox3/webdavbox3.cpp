@@ -1,6 +1,6 @@
 #include "webdavbox3.h"
 #include "esphome/core/log.h"
-
+#include "esp_http_server.h"
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -69,147 +69,46 @@ void WebDAVBox3::loop() {
 }
 
 void WebDAVBox3::configure_http_server() {
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = port_;
-  config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
-  config.max_uri_handlers = 16;     // Augmentation du nombre maximum de gestionnaires URI
-  config.lru_purge_enable = true;   // Active le nettoyage LRU pour éviter les problèmes de mémoire
-  config.recv_wait_timeout = 30;    // Augmente le timeout pour les fichiers volumineux
-  config.send_wait_timeout = 30;    // Augmente le timeout pour les fichiers volumineux
-  
-  // Vérifier que le serveur n'est pas déjà démarré
-  if (server_ != nullptr) {
-    ESP_LOGW(TAG, "Server already started, stopping previous instance");
-    httpd_stop(server_);
-    server_ = nullptr;
-  }
-  
-  if (httpd_start(&server_, &config) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start server on port %d", port_);
-    server_ = nullptr;
-    return;
-  }
-  ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
-  
-  // Gestionnaire pour la racine
-  httpd_uri_t root_uri = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = handle_root,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &root_uri);
-  
-  // Gestionnaire OPTIONS pour les méthodes WebDAV
-  httpd_uri_t options_uri = {
-    .uri = "/",
-    .method = HTTP_OPTIONS,
-    .handler = handle_webdav_options,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &options_uri);
-  
-  // Gestionnaires PROPFIND (pour la racine et tous les chemins)
-  httpd_uri_t propfind_uri = {
-    .uri = "/",
-    .method = HTTP_PROPFIND,
-    .handler = handle_webdav_propfind,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &propfind_uri);
-  
-  httpd_uri_t propfind_wildcard_uri = {
-    .uri = "/",
-    .method = HTTP_PROPFIND,
-    .handler = handle_webdav_propfind,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &propfind_wildcard_uri);
-  
-  // Ajouter le support pour PROPPATCH
-  httpd_uri_t proppatch_uri = {
-    .uri = "/",
-    .method = HTTP_PROPPATCH,
-    .handler = handle_webdav_proppatch,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &proppatch_uri);
-  
-  // Autres gestionnaires WebDAV
-  httpd_uri_t get_uri = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = handle_webdav_get,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &get_uri);
-  
-  httpd_uri_t head_uri = {
-    .uri = "/",
-    .method = HTTP_HEAD,
-    .handler = handle_webdav_get, // Utilisation de GET pour HEAD en attendant une implémentation spécifique
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &head_uri);
-  
-  httpd_uri_t put_uri = {
-    .uri = "/",
-    .method = HTTP_PUT,
-    .handler = handle_webdav_put,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &put_uri);
-  
-  httpd_uri_t delete_uri = {
-    .uri = "/",
-    .method = HTTP_DELETE,
-    .handler = handle_webdav_delete,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &delete_uri);
-  
-  httpd_uri_t mkcol_uri = {
-    .uri = "/",
-    .method = HTTP_MKCOL,
-    .handler = handle_webdav_mkcol,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &mkcol_uri);
-  
-  httpd_uri_t move_uri = {
-    .uri = "/",
-    .method = HTTP_MOVE,
-    .handler = handle_webdav_move,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &move_uri);
-  
-  httpd_uri_t copy_uri = {
-    .uri = "/",
-    .method = HTTP_COPY,
-    .handler = handle_webdav_copy,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &copy_uri);
-  
-  // Gestionnaires pour LOCK et UNLOCK
-  httpd_uri_t lock_uri = {
-    .uri = "/",
-    .method = HTTP_LOCK,
-    .handler = handle_webdav_lock,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &lock_uri);
-  
-  httpd_uri_t unlock_uri = {
-    .uri = "/",
-    .method = HTTP_UNLOCK,
-    .handler = handle_webdav_unlock,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &unlock_uri);
-  
-  ESP_LOGI(TAG, "Tous les gestionnaires WebDAV ont été enregistrés");
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = port_;
+    config.ctrl_port = port_ + 1000;
+    config.max_uri_handlers = 16;
+    config.lru_purge_enable = true;
+    config.recv_wait_timeout = 30;
+    config.send_wait_timeout = 30;
+
+    if (server_ != nullptr) {
+        ESP_LOGW(TAG, "Server already started, stopping previous instance");
+        httpd_stop(server_);
+        server_ = nullptr;
+    }
+
+    if (httpd_start(&server_, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start server on port %d", port_);
+        server_ = nullptr;
+        return;
+    }
+    ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
+
+    // Gestionnaire pour la racine
+    httpd_uri_t root_uri = {
+        .uri       = "/",
+        .method    = HTTP_ANY,
+        .handler   = http_req_handler,
+        .user_ctx  = this
+    };
+    httpd_register_uri_handler(server_, &root_uri);
+
+    // Gestionnaire générique pour toutes les URI
+    httpd_uri_t wildcard_uri = {
+        .uri       = "/*",
+        .method    = HTTP_ANY,
+        .handler   = http_req_handler,
+        .user_ctx  = this
+    };
+    httpd_register_uri_handler(server_, &wildcard_uri);
+
+    ESP_LOGI(TAG, "Tous les gestionnaires WebDAV ont été enregistrés");
 }
 void WebDAVBox3::start_server() {
   if (server_ != nullptr)
