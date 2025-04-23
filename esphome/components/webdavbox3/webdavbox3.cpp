@@ -538,12 +538,12 @@ esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
   std::string parent_dir = path.substr(0, path.find_last_of('/'));
   if (!parent_dir.empty() && !is_dir(parent_dir)) {
     ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-    if (mkdir(parent_dir.c_str(), 0755) != 0) {
+    if (mkdir(parent_dir.c_str(), 0777) != 0) {
       ESP_LOGE(TAG, "Impossible de créer le répertoire parent: %s (errno: %d)", parent_dir.c_str(), errno);
     }
   }
 
-  if (mkdir(path.c_str(), 0755) == 0) {
+  if (mkdir(path.c_str(), 0777) == 0) {
     ESP_LOGI(TAG, "Répertoire créé: %s", path.c_str());
     httpd_resp_set_status(req, "201 Created");
     httpd_resp_send(req, NULL, 0);
@@ -594,7 +594,7 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
     std::string parent_dir = dst.substr(0, dst.find_last_of('/'));
     if (!parent_dir.empty() && !is_dir(parent_dir)) {
       ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-      if (mkdir(parent_dir.c_str(), 0755) != 0) {
+      if (mkdir(parent_dir.c_str(), 0777) != 0) {
         ESP_LOGE(TAG, "Impossible de créer le répertoire parent: %s (errno: %d)", parent_dir.c_str(), errno);
       }
     }
@@ -637,7 +637,7 @@ esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
     // Créer le répertoire parent si nécessaire
     std::string parent_dir = dst.substr(0, dst.find_last_of('/'));
     if (!parent_dir.empty() && !is_dir(parent_dir)) {
-      mkdir(parent_dir.c_str(), 0755);
+      mkdir(parent_dir.c_str(), 0777);
     }
     
     // Pour les répertoires, il faudrait une copie récursive (non implémentée ici)
