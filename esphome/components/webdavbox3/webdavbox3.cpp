@@ -32,12 +32,21 @@ std::string url_decode(const std::string &src) {
 
 // Méthodes de vérification des permissions
 bool WebDAVBox3::check_read_permission(const std::string &path) {
+  struct stat st;
+  // Vérifier d'abord si le chemin existe
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Chemin n'existe pas: %s (errno: %d)", path.c_str(), errno);
+    return false;
+  }
+  
+  // Vérifier les permissions
   if (access(path.c_str(), R_OK) != 0) {
     ESP_LOGE(TAG, "Pas de permission de lecture pour: %s (errno: %d)", path.c_str(), errno);
     return false;
   }
   return true;
 }
+
 
 bool WebDAVBox3::check_write_permission(const std::string &path) {
   if (access(path.c_str(), W_OK) != 0) {
@@ -62,9 +71,27 @@ bool WebDAVBox3::check_parent_write_permission(const std::string &path) {
 }
 
 void WebDAVBox3::setup() {
+  // Supprimer le dernier '/' s'il existe
+  if (root_path_.back() == '/') {
+    root_path_.pop_back();
+  }
+  
   ESP_LOGI(TAG, "Utilisation du montage SD existant à %s", root_path_.c_str());
   
-  // Vérifier les permissions sur le dossier racine
+  // Vérifier si le dossier existe
+  struct stat st;
+  if (stat(root_path_.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Le dossier racine n'existe pas: %s", root_path_.c_str());
+    return;
+  }
+
+  // Vérifier si c'est un dossier
+  if (!S_ISDIR(st.st_mode)) {
+    ESP_LOGE(TAG, "Le chemin n'est pas un dossier: %s", root_path_.c_str());
+    return;
+  }
+
+  // Vérifier les permissions
   if (!check_read_permission(root_path_)) {
     ESP_LOGE(TAG, "Pas de permission de lecture sur le dossier racine!");
     return;
@@ -81,6 +108,7 @@ void WebDAVBox3::setup() {
   this->configure_http_server();
   this->start_server();
 }
+
 
 void WebDAVBox3::loop() {
   // Rien pour le moment
