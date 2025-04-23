@@ -5,6 +5,11 @@
 #include <cstring>
 #include <algorithm>
 
+#ifndef HTTPD_412_PRECONDITION_FAILED
+#define HTTPD_412_PRECONDITION_FAILED 412
+#endif
+
+
 namespace esphome {
 namespace webdavbox3 {
 
