@@ -646,7 +646,7 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
 
   return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Move failed");
 }
-}
+
 esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string src = get_file_path(req, inst->root_path_);
