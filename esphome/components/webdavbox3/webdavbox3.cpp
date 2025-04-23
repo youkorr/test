@@ -8,7 +8,7 @@
 namespace esphome {
 namespace webdavbox3 {
 
-from .. import sd_mmc_card
+
 
 static const char *const TAG = "webdavbox3";
 
