@@ -89,7 +89,14 @@ void WebDAVBox3::configure_http_server() {
         return;
     }
     ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
+   httpd_uri_t root_uri = {
+       .uri = "/",
+       .method = HTTP_GET,
+       .handler = handle_root,
+       .user_ctx = this
 
+  };
+  httpd_register_uri_handler(server_, &root_uri);
     // Gestionnaire pour la racine
     httpd_uri_t root_uri = {
         .uri       = "/",
