@@ -13,6 +13,15 @@
 namespace esphome {
 namespace webdavbox3 {
 
+// Définir d'abord les méthodes HTTP WebDAV personnalisées
+static const httpd_method_t HTTP_PROPFIND = static_cast<httpd_method_t>(1 << 7);
+static const httpd_method_t HTTP_PROPPATCH = static_cast<httpd_method_t>(1 << 8);
+static const httpd_method_t HTTP_MKCOL = static_cast<httpd_method_t>(1 << 9);
+static const httpd_method_t HTTP_COPY = static_cast<httpd_method_t>(1 << 10);
+static const httpd_method_t HTTP_MOVE = static_cast<httpd_method_t>(1 << 11);
+static const httpd_method_t HTTP_LOCK = static_cast<httpd_method_t>(1 << 12);
+static const httpd_method_t HTTP_UNLOCK = static_cast<httpd_method_t>(1 << 13);
+
 class WebDAVBox3 : public Component {
  public:
   void setup() override;
@@ -58,11 +67,11 @@ class WebDAVBox3 : public Component {
   static std::vector<std::string> list_dir(const std::string &path);
   static std::string generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size);
 
+  // Définir HTTP_ALL_METHODS comme une combinaison de toutes les méthodes
   static const httpd_method_t HTTP_ALL_METHODS = static_cast<httpd_method_t>(
-    HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_DELETE | 
-    HTTP_PROPFIND | HTTP_PROPPATCH | HTTP_MKCOL | 
-    HTTP_COPY | HTTP_MOVE | HTTP_LOCK | HTTP_UNLOCK
-
+      HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_DELETE | 
+      HTTP_PROPFIND | HTTP_PROPPATCH | HTTP_MKCOL | 
+      HTTP_COPY | HTTP_MOVE | HTTP_LOCK | HTTP_UNLOCK);
 };
 
 }  // namespace webdavbox3
