@@ -93,7 +93,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaire pour la racine
   httpd_uri_t root_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_GET,
     .handler = handle_root,
     .user_ctx = this
@@ -102,7 +102,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaire OPTIONS pour les méthodes WebDAV
   httpd_uri_t options_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_OPTIONS,
     .handler = handle_webdav_options,
     .user_ctx = this
@@ -111,7 +111,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaires PROPFIND (pour la racine et tous les chemins)
   httpd_uri_t propfind_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
@@ -119,7 +119,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &propfind_uri);
   
   httpd_uri_t propfind_wildcard_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
@@ -128,7 +128,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Ajouter le support pour PROPPATCH
   httpd_uri_t proppatch_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_PROPPATCH,
     .handler = handle_webdav_proppatch,
     .user_ctx = this
@@ -137,7 +137,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Autres gestionnaires WebDAV
   httpd_uri_t get_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_GET,
     .handler = handle_webdav_get,
     .user_ctx = this
@@ -145,7 +145,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &get_uri);
   
   httpd_uri_t head_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_HEAD,
     .handler = handle_webdav_get, // Utilisation de GET pour HEAD en attendant une implémentation spécifique
     .user_ctx = this
@@ -153,7 +153,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &head_uri);
   
   httpd_uri_t put_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_PUT,
     .handler = handle_webdav_put,
     .user_ctx = this
@@ -161,7 +161,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &put_uri);
   
   httpd_uri_t delete_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_DELETE,
     .handler = handle_webdav_delete,
     .user_ctx = this
@@ -169,7 +169,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &delete_uri);
   
   httpd_uri_t mkcol_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_MKCOL,
     .handler = handle_webdav_mkcol,
     .user_ctx = this
@@ -177,7 +177,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &mkcol_uri);
   
   httpd_uri_t move_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_MOVE,
     .handler = handle_webdav_move,
     .user_ctx = this
@@ -185,7 +185,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &move_uri);
   
   httpd_uri_t copy_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_COPY,
     .handler = handle_webdav_copy,
     .user_ctx = this
@@ -194,7 +194,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaires pour LOCK et UNLOCK
   httpd_uri_t lock_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_LOCK,
     .handler = handle_webdav_lock,
     .user_ctx = this
@@ -202,7 +202,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &lock_uri);
   
   httpd_uri_t unlock_uri = {
-    .uri = "/*",
+    .uri = "/",
     .method = HTTP_UNLOCK,
     .handler = handle_webdav_unlock,
     .user_ctx = this
