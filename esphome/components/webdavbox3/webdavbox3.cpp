@@ -10,6 +10,38 @@ namespace webdavbox3 {
 
 static const char* TAG = "webdavbox3";
 
+#define HTTPD_412_PRECONDITION_FAILED 412
+
+WebDAVBox3* WebDAVBox3::instance = nullptr;
+
+void WebDAVBox3::setup() {
+  instance = this;
+  this->configure_http_server();
+}
+
+float WebDAVBox3::get_setup_priority() const { return setup_priority::LATE; }
+
+std::string WebDAVBox3::uri_to_filepath(const char* uri) {
+  std::string path = uri;
+  // Remove "/webdav" prefix if present
+  if (path.substr(0, 7) == "/webdav") {
+    path = path.substr(7);
+  }
+  // Ensure path starts with "/"
+  if (path.empty() || path[0] != '/') {
+    path = "/" + path;
+  }
+  return "/data" + path;  // Prefix with /data directory
+}
+
+esp_err_t WebDAVBox3::handle_webdav_list(httpd_req_t *req) {
+  // Implementation of handle_webdav_list
+  // This is just a placeholder - implement the actual listing logic
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_send(req, "", 0);
+  return ESP_OK;
+}
+
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
     esp_netif_ip_info_t ip_info;
     esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
