@@ -62,9 +62,7 @@ void WebDAVBox3::setup() {
   this->start_server();
 }
 
-void WebDAVBox3::set_sd_card(esphome::sd_mmc_card::SDMMCCard *sd_card) {
-  this->sd_card_ = sd_card;
-}
+
 
 void WebDAVBox3::loop() {
   // Rien pour le moment
