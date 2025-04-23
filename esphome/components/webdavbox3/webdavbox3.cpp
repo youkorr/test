@@ -441,14 +441,6 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
         overwrite = (overwrite_header[0] == 'T' || overwrite_header[0] == 't');
     }
     
-    // Vérifier si la destination existe déjà
-    struct stat dest_stat;
-    bool dest_exists = (stat(dest_path.c_str(), &dest_stat) == 0);
-    
-    if (dest_exists && !overwrite) {
-        httpd_resp_send_err(req, HTTPD_412_PRECONDITION_FAILED, "Destination exists and Overwrite is F");
-        return ESP_FAIL;
-    }
     
     // Supprimer la destination si elle existe et que overwrite est true
     if (dest_exists) {
