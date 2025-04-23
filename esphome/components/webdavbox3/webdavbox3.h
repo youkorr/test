@@ -34,6 +34,12 @@ class WebDAVBox3 : public Component {
   std::string password_;
   bool auth_enabled_{false};
 
+  // Ajout des méthodes de vérification des permissions
+  bool check_read_permission(const std::string &path);
+  bool check_write_permission(const std::string &path);
+  bool check_execute_permission(const std::string &path);
+  bool check_parent_write_permission(const std::string &path);
+
   void configure_http_server();
   void start_server();
   void stop_server();
@@ -62,6 +68,7 @@ class WebDAVBox3 : public Component {
 
 }  // namespace webdavbox3
 }  // namespace esphome
+
 
 
 
