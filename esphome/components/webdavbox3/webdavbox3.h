@@ -25,7 +25,8 @@ class WebDAVBox3 : public Component {
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
-  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }  // Nouveauté pour activer/désactiver l'authentification
+  void enable_authentication(bool enabled) { auth_enabled_ = enabled; } 
+  void set_sd_card(esphome::sd_card::SDCard *sd_card);// Nouveauté pour activer/désactiver l'authentification
 
  protected:
   httpd_handle_t server_{nullptr};
@@ -34,7 +35,8 @@ class WebDAVBox3 : public Component {
   uint16_t port_{8081};                // Le port par défaut
   std::string username_;
   std::string password_;
-  bool auth_enabled_{false};           // Si l'authentification est activée
+  bool auth_enabled_{false}; 
+  esphome::sd_card::SDCard *sd_card_{nullptr};// Si l'authentification est activée
 
   // HTTP server configuration
   void configure_http_server();
