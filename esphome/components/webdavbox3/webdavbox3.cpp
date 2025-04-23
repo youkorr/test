@@ -442,16 +442,7 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
     }
     
     
-    // Supprimer la destination si elle existe et que overwrite est true
-    if (dest_exists) {
-        if (S_ISDIR(dest_stat.st_mode)) {
-            std::string cmd = "rm -rf \"" + dest_path + "\"";
-            system(cmd.c_str());
-        } else {
-            remove(dest_path.c_str());
-        }
-    }
-    
+
     // Créer le répertoire parent de la destination si nécessaire
     std::string dest_parent = dest_path.substr(0, dest_path.find_last_of("/\\"));
     if (!dest_parent.empty()) {
