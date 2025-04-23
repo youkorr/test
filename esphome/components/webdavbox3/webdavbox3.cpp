@@ -258,13 +258,7 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
   // Décoder l'URL
   uri = url_decode(uri);
   
-  // Traitement spécial pour la racine "/"
-  if (uri.empty() || uri == "/") {
-    ESP_LOGD(TAG, "URI racine détectée, utilisation de %s", path.c_str());
-    return path;
-  }
-  
-  // S'assurer que le chemin se termine par un '/' si ce n'est pas déjà le cas
+  // Vérifier si le chemin racine se termine par un '/'
   if (path.back() != '/') {
     path += '/';
   }
@@ -272,6 +266,11 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
   // Supprimer le premier '/' de l'URI s'il existe
   if (!uri.empty() && uri.front() == '/') {
     uri = uri.substr(1);
+  }
+  
+  // Si c'est la racine, retourner le chemin racine sans ajouter de '/'
+  if (uri.empty()) {
+    return path.substr(0, path.length() - 1); // Enlever le dernier '/'
   }
   
   path += uri;
@@ -482,13 +481,32 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
   std::string parent_dir = path.substr(0, path.find_last_of('/'));
   if (!parent_dir.empty() && !is_dir(parent_dir)) {
     ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-    // Créer les répertoires parents si nécessaire
-    if (mkdir(parent_dir.c_str(), 0755) != 0) {
-      ESP_LOGE(TAG, "Impossible de créer le répertoire parent: %s (errno: %d)", parent_dir.c_str(), errno);
-      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create parent directory");
+    // Créer les répertoires parents récursivement si nécessaire
+    // Fonction qui crée le répertoire de manière récursive
+    std::string current_path = "";
+    std::istringstream path_stream(parent_dir);
+    std::string segment;
+    
+    while (std::getline(path_stream, segment, '/')) {
+      if (segment.empty()) continue;
+      
+      if (current_path.empty()) {
+        current_path = "/";
+      }
+      
+      current_path += segment + "/";
+      
+      if (!is_dir(current_path)) {
+        ESP_LOGI(TAG, "Création du répertoire intermédiaire: %s", current_path.c_str());
+        if (mkdir(current_path.c_str(), 0755) != 0) {
+          ESP_LOGE(TAG, "Impossible de créer le répertoire: %s (errno: %d)", current_path.c_str(), errno);
+          return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
+        }
+      }
     }
   }
 
+  // Ouvrir le fichier avec des permissions explicites
   FILE *file = fopen(path.c_str(), "wb");
   if (!file) {
     ESP_LOGE(TAG, "Impossible de créer le fichier: %s (errno: %d)", path.c_str(), errno);
