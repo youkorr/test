@@ -10,6 +10,10 @@
 #include "esp_vfs_fat.h"
 #include "esp_netif.h"
 
+#ifndef HTTPD_412_PRECONDITION_FAILED
+#define HTTPD_412_PRECONDITION_FAILED 412
+#endif
+
 namespace esphome {
 namespace webdavbox3 {
 
@@ -28,7 +32,7 @@ class WebDAVBox3 : public Component {
  protected:
   httpd_handle_t server_{nullptr};
   std::string root_path_{"/sdcard/"};  // Le chemin par défaut
-  std::string url_prefix_{"/"};  // Le préfixe d'URL
+  std::string url_prefix_{"/"};        // Le préfixe d'URL
   uint16_t port_{8081};                // Le port par défaut
   std::string username_;
   std::string password_;
@@ -38,13 +42,17 @@ class WebDAVBox3 : public Component {
   void configure_http_server();
   void start_server();
   void stop_server();
-
+  
   // Authentication helpers
   bool authenticate(httpd_req_t *req);
   esp_err_t send_auth_required_response(httpd_req_t *req);
-
+  
+  // WebDAV path conversion
+  std::string uri_to_filepath(const char* uri);  // Added to match implementation
+  
   // WebDAV handler methods
   static esp_err_t handle_root(httpd_req_t *req);
+  static esp_err_t handle_webdav_list(httpd_req_t *req);  // Added to match implementation
   static esp_err_t handle_webdav_options(httpd_req_t *req);
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
   static esp_err_t handle_webdav_get(httpd_req_t *req);
@@ -55,7 +63,7 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_copy(httpd_req_t *req);
   static esp_err_t handle_webdav_lock(httpd_req_t *req);
   static esp_err_t handle_webdav_unlock(httpd_req_t *req);
-
+  
   // Helper methods
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
   static bool is_dir(const std::string &path);
