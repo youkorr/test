@@ -466,9 +466,6 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
-    httpd_resp_set_status(req, dest_exists ? "204 No Content" : "201 Created");
-    httpd_resp_send(req, NULL, 0);
-    return ESP_OK;
 }
 
 void WebDAVBox3::configure_http_server() {
