@@ -604,9 +604,22 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
       return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid destination URI");
     }
     
-    // Construire le chemin complet
-    std::string dst_uri = uri_part;
-    std::string dst = get_file_path(httpd_req_t{.uri = dst_uri.c_str()}, inst->root_path_);
+    // Construire directement le chemin de destination
+    std::string dst = inst->root_path_;
+    
+    // S'assurer que le chemin se termine par un '/'
+    if (dst.back() != '/') {
+      dst += '/';
+    }
+    
+    // Supprimer le premier '/' de l'URI si présent
+    std::string uri_str = uri_part;
+    if (!uri_str.empty() && uri_str.front() == '/') {
+      uri_str = uri_str.substr(1);
+    }
+    
+    // Ajouter l'URI décodée au chemin racine
+    dst += url_decode(uri_str);
     
     ESP_LOGD(TAG, "MOVE de %s vers %s", src.c_str(), dst.c_str());
     
@@ -632,6 +645,7 @@ esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
   }
 
   return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Move failed");
+}
 }
 esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
