@@ -100,15 +100,6 @@ void WebDAVBox3::configure_http_server() {
     httpd_register_uri_handler(this->server_, &handler);
   }
 
-  httpd_register_uri_handler(server_, &unknown_method_handler);
-  // Generic handler for all WebDAV methods
-  httpd_uri_t generic_handler = {
-    .uri = "/*",
-    .method = HTTP_GET,
-    .handler = handle_webdav_generic,
-    .user_ctx = this
-  };
-
   if (httpd_register_uri_handler(server_, &generic_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register generic handler");
   }
