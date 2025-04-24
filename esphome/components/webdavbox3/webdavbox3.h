@@ -18,7 +18,7 @@ class WebDAVBox3 : public Component {
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
-  //void set_root_path(const std::string &path) { root_path_ = path; }
+  void set_root_path(const std::string &path) { root_path_ = path; }
   void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
