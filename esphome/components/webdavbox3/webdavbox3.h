@@ -48,6 +48,9 @@ class WebDAVBox3 : public Component {
   
   // WebDAV path conversion
   std::string uri_to_filepath(const char* uri);
+
+    // Nouveau gestionnaire générique
+  static esp_err_t handle_webdav_generic(httpd_req_t *req);
   
   // WebDAV handler methods
   static esp_err_t handle_root(httpd_req_t *req);
