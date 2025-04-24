@@ -125,23 +125,6 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &root_uri);
-
-    // Gestionnaires PROPFIND (pour la racine et tous les chemins)
-  httpd_uri_t propfind_uri = {
-    .uri = "/",
-    .method = HTTP_PROPFIND,
-    .handler = handle_webdav_propfind,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &propfind_uri);
-  
-  httpd_uri_t propfind_wildcard_uri = {
-    .uri = "/*",
-    .method = HTTP_PROPFIND,
-    .handler = handle_webdav_propfind,
-    .user_ctx = this
-  };
-  httpd_register_uri_handler(server_, &propfind_wildcard_uri);
   
   httpd_uri_t options_uri = {
     .uri = "/*",
