@@ -29,7 +29,7 @@ class WebDAVBox3 : public Component {
  protected:
   httpd_handle_t server_{nullptr};
   std::string root_path_{"/sdcard/"};
-  uint16_t port_{8081};
+  uint16_t port_{80};
   std::string username_;
   std::string password_;
   bool auth_enabled_{false};
