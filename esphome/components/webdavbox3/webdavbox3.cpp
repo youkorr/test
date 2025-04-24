@@ -228,11 +228,13 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
   return path;
 }
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
+  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+  
   std::string uri = req->uri;
   ESP_LOGI(TAG, "GET request for file: %s", uri.c_str());
 
-  // Convert URI to file path
-  std::string file_path = uri_to_filepath(req->uri);
+  // Convert URI to file path using the instance
+  std::string file_path = inst->uri_to_filepath(req->uri);
 
   // Open the file in binary mode
   FILE *file = fopen(file_path.c_str(), "rb");
