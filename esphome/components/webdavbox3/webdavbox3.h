@@ -47,7 +47,7 @@ class WebDAVBox3 : public Component {
   std::string uri_to_filepath(const char* uri);
   
   // WebDAV handler methods
-  static esp_err_t handle_root_method(httpd_req_t *req);
+  static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_generic(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req);
   static esp_err_t handle_webdav_get(httpd_req_t *req);
@@ -62,9 +62,9 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_proppatch(httpd_req_t *req);
   
   // Helper methods
-  static bool is_dir(const std::string &path);
-  static std::vector<std::string> list_dir(const std::string &path);
-  static std::string generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size);
+  bool is_dir(const std::string &path);
+  std::vector<std::string> list_dir(const std::string &path);
+  std::string generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size);
 };
 
 }  // namespace webdavbox3
