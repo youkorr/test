@@ -160,6 +160,7 @@ void WebDAVBox3::configure_http_server() {
   if (httpd_register_uri_handler(server_, &get_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register GET handler");
   }
+
 }
 
 
@@ -240,42 +241,103 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   
-  std::string uri = req->uri;
-  ESP_LOGI(TAG, "GET request for file: %s", uri.c_str());
-
-  // Convert URI to file path using the instance
-  std::string file_path = inst->uri_to_filepath(req->uri);
-
-  // Open the file in binary mode
-  FILE *file = fopen(file_path.c_str(), "rb");
-  if (file != nullptr) {
-    // Determine file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    // Set content type based on file extension (optional)
-    // httpd_resp_set_type(req, "application/octet-stream");
-
-    // Read and send file in chunks
-    char buf[1024];
-    size_t read_bytes;
-    while ((read_bytes = fread(buf, 1, sizeof(buf), file)) > 0) {
-      if (httpd_resp_send_chunk(req, buf, read_bytes) != ESP_OK) {
-        fclose(file);
-        return ESP_FAIL;
-      }
-    }
-
-    fclose(file);
-    // Send empty chunk to signal the end of the response
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-  } else {
-    // If the file doesn't exist, return a 404 error
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File Not Found");
+  ESP_LOGI(TAG, "GET request for: '%s'", req->uri);
+  
+  // Authentication check
+  if (inst->auth_enabled_ && !inst->authenticate(req)) {
+    return inst->send_auth_required_response(req);
   }
+
+  std::string path = inst->uri_to_filepath(req->uri);
+  ESP_LOGI(TAG, "Mapped to filesystem path: '%s'", path.c_str());
+  
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Path not found: '%s' (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+  }
+
+  if (S_ISDIR(st.st_mode)) {
+    ESP_LOGI(TAG, "Path is a directory, listing contents");
+    
+    // Si c'est un répertoire, vous pouvez soit:
+    // 1. Envoyer une liste des fichiers dans le répertoire
+    std::vector<std::string> files = inst->list_dir(path);
+    std::string response = "<html><head><title>Directory Listing</title></head><body><h1>Directory Listing for ";
+    response += req->uri;
+    response += "</h1><ul>";
+    
+    for (const auto &file : files) {
+      response += "<li><a href=\"";
+      if (req->uri[strlen(req->uri)-1] != '/') {
+        response += req->uri;
+        response += "/";
+      } else {
+        response += req->uri;
+      }
+      response += file;
+      response += "\">";
+      response += file;
+      response += "</a></li>";
+    }
+    
+    response += "</ul></body></html>";
+    
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, response.c_str(), response.length());
+    return ESP_OK;
+  }
+  
+  // Si c'est un fichier, l'envoyer
+  FILE *file = fopen(path.c_str(), "rb");
+  if (!file) {
+    ESP_LOGE(TAG, "Failed to open file: '%s' (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+  }
+  
+  // Déterminer le Content-Type basé sur l'extension
+  const char* content_type = "application/octet-stream";  // Type par défaut
+  std::string filename = path;
+  size_t dot_pos = filename.find_last_of('.');
+  if (dot_pos != std::string::npos) {
+    std::string ext = filename.substr(dot_pos);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    
+    if (ext == ".html" || ext == ".htm") content_type = "text/html";
+    else if (ext == ".txt") content_type = "text/plain";
+    else if (ext == ".css") content_type = "text/css";
+    else if (ext == ".js") content_type = "application/javascript";
+    else if (ext == ".png") content_type = "image/png";
+    else if (ext == ".jpg" || ext == ".jpeg") content_type = "image/jpeg";
+    else if (ext == ".gif") content_type = "image/gif";
+    else if (ext == ".ico") content_type = "image/x-icon";
+    else if (ext == ".svg") content_type = "image/svg+xml";
+    else if (ext == ".pdf") content_type = "application/pdf";
+    // Ajoutez d'autres types si nécessaire
+  }
+  
+  httpd_resp_set_type(req, content_type);
+  
+  // Envoyer le fichier en chunks
+  char buf[1024];
+  size_t read_bytes;
+  esp_err_t ret = ESP_OK;
+  
+  while ((read_bytes = fread(buf, 1, sizeof(buf), file)) > 0) {
+    if (httpd_resp_send_chunk(req, buf, read_bytes) != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to send chunk");
+      ret = ESP_FAIL;
+      break;
+    }
+  }
+  
+  fclose(file);
+  httpd_resp_send_chunk(req, NULL, 0);
+  
+  ESP_LOGI(TAG, "File sent successfully");
+  return ret;
 }
+
 
 // WebDAV Handler Methods
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
