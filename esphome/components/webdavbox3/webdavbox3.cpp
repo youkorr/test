@@ -44,7 +44,18 @@ void WebDAVBox3::setup() {
   struct stat st;
   if (stat(root_path_.c_str(), &st) != 0) {
     ESP_LOGE(TAG, "Root directory doesn't exist: %s (errno: %d)", root_path_.c_str(), errno);
-    if (mkdir(root_path_.c_str(), 0755) != 0) {
+    // Create directory with intermediate directories if needed
+    std::string path = root_path_;
+    size_t pos = 0;
+    while ((pos = path.find('/', pos + 1)) != std::string::npos) {
+      std::string subpath = path.substr(0, pos);
+      if (!subpath.empty()) {
+        if (mkdir(subpath.c_str(), 0755) != 0 && errno != EEXIST) {
+          ESP_LOGE(TAG, "Failed to create directory: %s (errno: %d)", subpath.c_str(), errno);
+        }
+      }
+    }
+    if (mkdir(path.c_str(), 0755) != 0 && errno != EEXIST) {
       ESP_LOGE(TAG, "Failed to create root directory: %s (errno: %d)", root_path_.c_str(), errno);
     }
   } else if (!S_ISDIR(st.st_mode)) {
@@ -83,9 +94,9 @@ void WebDAVBox3::configure_http_server() {
 
   ESP_LOGI(TAG, "WebDAV server started on port %d", port_);
 
-  // Fallback handler pour méthodes non spécifiques
+  // Fallback handler for non-specific methods (REMOVED GET from this list)
   std::vector<http_method> fallback_methods = {
-    HTTP_GET, HTTP_POST, HTTP_HEAD, HTTP_PATCH, HTTP_TRACE
+    HTTP_POST, HTTP_HEAD, HTTP_PATCH, HTTP_TRACE
   };
 
   for (auto method : fallback_methods) {
@@ -104,7 +115,7 @@ void WebDAVBox3::configure_http_server() {
     }
   }
 
-  // Handlers spécifiques WebDAV
+  // Handlers specific to WebDAV
   httpd_uri_t handlers[] = {
     { .uri = "/*", .method = HTTP_PUT,       .handler = handle_webdav_put,       .user_ctx = this },
     { .uri = "/*", .method = HTTP_DELETE,    .handler = handle_webdav_delete,    .user_ctx = this },
@@ -129,11 +140,12 @@ void WebDAVBox3::configure_http_server() {
     .method = HTTP_POST,
     .handler = [](httpd_req_t *req) -> esp_err_t {
       auto* inst = static_cast<WebDAVBox3*>(req->user_ctx);
-      return inst->handle_unknown_method(req); // Ou autre
+      return inst->handle_unknown_method(req); // Or another handler
     },
     .user_ctx = this
   };
-  // Handler pour la racine "/"
+  
+  // Handler for the root "/"
   httpd_uri_t root_handler = {
     .uri = "/",
     .method = HTTP_GET,
@@ -144,30 +156,30 @@ void WebDAVBox3::configure_http_server() {
   if (httpd_register_uri_handler(server_, &root_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register root handler");
   }
+  
   httpd_uri_t propfind_root_handler = {
     .uri = "/",
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
- };
+  };
 
   if (httpd_register_uri_handler(server_, &propfind_root_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register PROPFIND / handler");
   }
-// Gestionnaire pour GET /* (tous les chemins)
+  
+  // Register the GET handler for all paths
   httpd_uri_t get_handler = {
     .uri = "/*",
     .method = HTTP_GET,
-    .handler = handle_webdav_get,  // Assurez-vous que cette fonction est implémentée
+    .handler = handle_webdav_get,
     .user_ctx = this
   };
   
   if (httpd_register_uri_handler(server_, &get_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register GET handler");
   }
-
 }
-
 
 void WebDAVBox3::start_server() {
   if (server_ != nullptr)
@@ -208,12 +220,14 @@ bool WebDAVBox3::authenticate(httpd_req_t *req) {
 
   return (provided_username == username_ && provided_password == password_);
 }
+
 esp_err_t WebDAVBox3::handle_unknown_method(httpd_req_t *req) {
-  ESP_LOGW(TAG, "Méthode non supportée reçue: %d", req->method);
+  ESP_LOGW(TAG, "Unsupported method received: %d", req->method);
   httpd_resp_set_status(req, "405 Method Not Allowed");
   httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
   return httpd_resp_send(req, NULL, 0);
 }
+
 esp_err_t WebDAVBox3::send_auth_required_response(httpd_req_t *req) {
   httpd_resp_set_status(req, "401 Unauthorized");
   httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"ESP32 WebDAV Server\"");
@@ -225,35 +239,36 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
   std::string path = root_path_;
   std::string uri_str = uri;
 
-  // Gestion du préfixe d'URL
+  // Handle URL prefix
   if (!url_prefix_.empty() && uri_str.find(url_prefix_) == 0) {
     uri_str = uri_str.substr(url_prefix_.length());
   }
 
-  // Supprimer les slashs en double
+  // Remove leading slashes
   while (!uri_str.empty() && uri_str[0] == '/') {
     uri_str = uri_str.substr(1);
   }
 
-  // S'assurer que le chemin racine se termine par un slash
+  // Ensure root path ends with a slash
   if (!path.empty() && path.back() != '/') {
     path += '/';
   }
 
-  // Cas spécial pour la racine
+  // Special case for root
   if (uri_str.empty()) {
     return path;
   }
 
-  // Décoder les caractères URL
+  // Decode URL characters
   uri_str = url_decode(uri_str);
 
-  // Combiner les chemins
+  // Combine paths
   path += uri_str;
 
-  ESP_LOGD(TAG, "Conversion URI '%s' vers chemin '%s'", uri, path.c_str());
+  ESP_LOGD(TAG, "Converted URI '%s' to path '%s'", uri, path.c_str());
   return path;
 }
+
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   
@@ -276,8 +291,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   if (S_ISDIR(st.st_mode)) {
     ESP_LOGI(TAG, "Path is a directory, listing contents");
     
-    // Si c'est un répertoire, vous pouvez soit:
-    // 1. Envoyer une liste des fichiers dans le répertoire
+    // If it's a directory, send a list of files
     std::vector<std::string> files = inst->list_dir(path);
     std::string response = "<html><head><title>Directory Listing</title></head><body><h1>Directory Listing for ";
     response += req->uri;
@@ -304,15 +318,15 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     return ESP_OK;
   }
   
-  // Si c'est un fichier, l'envoyer
+  // If it's a file, send it
   FILE *file = fopen(path.c_str(), "rb");
   if (!file) {
     ESP_LOGE(TAG, "Failed to open file: '%s' (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
   }
   
-  // Déterminer le Content-Type basé sur l'extension
-  const char* content_type = "application/octet-stream";  // Type par défaut
+  // Determine Content-Type based on extension
+  const char* content_type = "application/octet-stream";  // Default type
   std::string filename = path;
   size_t dot_pos = filename.find_last_of('.');
   if (dot_pos != std::string::npos) {
@@ -329,12 +343,12 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     else if (ext == ".ico") content_type = "image/x-icon";
     else if (ext == ".svg") content_type = "image/svg+xml";
     else if (ext == ".pdf") content_type = "application/pdf";
-    // Ajoutez d'autres types si nécessaire
+    // Add other types as needed
   }
   
   httpd_resp_set_type(req, content_type);
   
-  // Envoyer le fichier en chunks
+  // Send file in chunks
   char buf[1024];
   size_t read_bytes;
   esp_err_t ret = ESP_OK;
@@ -354,7 +368,6 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   return ret;
 }
 
-
 // WebDAV Handler Methods
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
@@ -365,55 +378,6 @@ esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   }
 
   httpd_resp_send(req, "ESP32 WebDAV Server", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
-}
-
-esp_err_t WebDAVBox3::handle_webdav_generic(httpd_req_t *req) {
-  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  
-  // Authentication
-  if (inst->auth_enabled_ && !inst->authenticate(req)) {
-    return inst->send_auth_required_response(req);
-  }
-
-  // Default GET handler
-  std::string path = inst->uri_to_filepath(req->uri);
-  
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) {
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
-  }
-
-  if (S_ISDIR(st.st_mode)) {
-    // If it's a directory, list contents
-    std::vector<std::string> files = inst->list_dir(path);
-    std::string response = "Directory Contents:\n";
-    for (const auto &file : files) {
-      response += file + "\n";
-    }
-    httpd_resp_send(req, response.c_str(), response.length());
-    return ESP_OK;
-  }
-
-  // If it's a file, try to send it
-  FILE *file = fopen(path.c_str(), "rb");
-  if (!file) {
-    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-  }
-
-  httpd_resp_set_type(req, "application/octet-stream");
-  
-  char buf[1024];
-  size_t read_bytes;
-  while ((read_bytes = fread(buf, 1, sizeof(buf), file)) > 0) {
-    if (httpd_resp_send_chunk(req, buf, read_bytes) != ESP_OK) {
-      fclose(file);
-      return ESP_FAIL;
-    }
-  }
-
-  fclose(file);
-  httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK;
 }
 
