@@ -214,6 +214,75 @@ void WebDAVBox3::stop_server() {
     server_ = nullptr;
   }
 }
+esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
+  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+  
+  // Vérifier l'authentification si activée
+  if (inst->auth_enabled_ && !inst->authenticate(req)) {
+    return inst->send_auth_required_response(req);
+  }
+
+  std::string path = inst->uri_to_filepath(req->uri);
+  ESP_LOGD(TAG, "PUT request for path: %s", path.c_str());
+
+  // Créer les répertoires parents si nécessaire
+  size_t last_slash = path.find_last_of('/');
+  if (last_slash != std::string::npos) {
+    std::string dir_path = path.substr(0, last_slash);
+    if (!dir_path.empty()) {
+      struct stat st;
+      if (stat(dir_path.c_str(), &st) != 0) {
+        // Créer le répertoire avec les permissions appropriées
+        if (mkdir(dir_path.c_str(), 0755) != 0) {
+          ESP_LOGE(TAG, "Failed to create directory: %s", dir_path.c_str());
+          return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
+        }
+      }
+    }
+  }
+
+  // Ouvrir le fichier en écriture
+  FILE *file = fopen(path.c_str(), "wb");
+  if (!file) {
+    ESP_LOGE(TAG, "Failed to open file for writing: %s", path.c_str());
+    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
+  }
+
+  // Lire et écrire le contenu par morceaux
+  char buf[1024];
+  int received;
+  size_t total_size = 0;
+
+  while ((received = httpd_req_recv(req, buf, sizeof(buf))) > 0) {
+    if (fwrite(buf, 1, received, file) != received) {
+      ESP_LOGE(TAG, "Failed to write to file");
+      fclose(file);
+      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write to file");
+    }
+    total_size += received;
+  }
+
+  // Vérifier si la réception s'est terminée correctement
+  if (received < 0 && received != HTTPD_SOCK_ERR_TIMEOUT) {
+    ESP_LOGE(TAG, "Error during file reception");
+    fclose(file);
+    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
+  }
+
+  fclose(file);
+  
+  // Définir les permissions du fichier
+  if (chmod(path.c_str(), 0644) != 0) {
+    ESP_LOGW(TAG, "Failed to set file permissions");
+  }
+
+  ESP_LOGI(TAG, "File uploaded successfully: %s, size: %zu bytes", path.c_str(), total_size);
+
+  // Envoyer la réponse de succès
+  httpd_resp_set_status(req, "201 Created");
+  httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
+}
 
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
   // Implémentation minimale pour LOCK
