@@ -1,6 +1,7 @@
 #pragma once
 #include "esphome/core/component.h"
 #include <esp_http_server.h>
+#include "../sd_mmc_card/sd_mmc_card.h"
 #include "esphome/core/helpers.h"
 #include <string>
 #include <vector>
