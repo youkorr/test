@@ -214,23 +214,64 @@ void WebDAVBox3::stop_server() {
     server_ = nullptr;
   }
 }
-esp_err_t WebDAVBox3::handle_webdav_request(httpd_req_t *req) {
+esp_err_t esphome::webdavbox3::WebDAVBox3::handle_webdav_request(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     
     // Get the method as a string from the request
     char method_str[16] = {0}; // Buffer for the method string
     
-    // In ESP-IDF, you can get the method string using httpd_req_get_method
-    // If that's not available, use httpd_method_name which converts enum to string
-    const char* method = httpd_method_name(static_cast<httpd_method_t>(req->method));
-    if (method != NULL) {
-        strncpy(method_str, method, sizeof(method_str) - 1);
-    } else {
-        // Fallback for custom WebDAV methods not defined in standard enum
-        // You might need to extract these from headers or use a different approach
-        // This is a simplified example
-        ESP_LOGW(TAG, "Unknown method enum: %d", req->method);
-        snprintf(method_str, sizeof(method_str), "UNKNOWN(%d)", req->method);
+    // Instead of using httpd_method_name which doesn't exist, use a custom implementation
+    // to convert the method enum to string
+    switch(req->method) {
+        case HTTP_GET:
+            strncpy(method_str, "GET", sizeof(method_str) - 1);
+            break;
+        case HTTP_POST:
+            strncpy(method_str, "POST", sizeof(method_str) - 1);
+            break;
+        case HTTP_PUT:
+            strncpy(method_str, "PUT", sizeof(method_str) - 1);
+            break;
+        case HTTP_DELETE:
+            strncpy(method_str, "DELETE", sizeof(method_str) - 1);
+            break;
+        case HTTP_HEAD:
+            strncpy(method_str, "HEAD", sizeof(method_str) - 1);
+            break;
+        case HTTP_OPTIONS:
+            strncpy(method_str, "OPTIONS", sizeof(method_str) - 1);
+            break;
+        default:
+            // Handle WebDAV specific methods that might not be in the enum
+            // This is where you'd need custom logic to identify methods like PROPFIND, MKCOL, etc.
+            ESP_LOGW(TAG, "Unknown method enum: %d", req->method);
+            snprintf(method_str, sizeof(method_str), "UNKNOWN(%d)", req->method);
+            
+            // For WebDAV methods, we can manually check the method string from the request
+            // This requires accessing the raw request data
+            // Note: You might need to adapt this depending on how ESP-IDF exposes the raw request
+            httpd_req_to_sockfd(req); // This gets the socket, but we need the raw request
+            
+            // A better approach would be to use a proper WebDAV library or 
+            // implement specific handling for WebDAV methods by adding custom detection
+            
+            // For now, let's check for specific raw HTTP method strings that might be in req->uri
+            if (strstr(req->uri, "PROPFIND") != NULL) {
+                strncpy(method_str, "PROPFIND", sizeof(method_str) - 1);
+            } else if (strstr(req->uri, "MKCOL") != NULL) {
+                strncpy(method_str, "MKCOL", sizeof(method_str) - 1);
+            } else if (strstr(req->uri, "LOCK") != NULL) {
+                strncpy(method_str, "LOCK", sizeof(method_str) - 1);
+            } else if (strstr(req->uri, "UNLOCK") != NULL) {
+                strncpy(method_str, "UNLOCK", sizeof(method_str) - 1);
+            } else if (strstr(req->uri, "MOVE") != NULL) {
+                strncpy(method_str, "MOVE", sizeof(method_str) - 1);
+            } else if (strstr(req->uri, "COPY") != NULL) {
+                strncpy(method_str, "COPY", sizeof(method_str) - 1);
+            } else if (strstr(req->uri, "PROPPATCH") != NULL) {
+                strncpy(method_str, "PROPPATCH", sizeof(method_str) - 1);
+            }
+            break;
     }
     
     ESP_LOGD(TAG, "Requête %s sur %s", method_str, req->uri);
