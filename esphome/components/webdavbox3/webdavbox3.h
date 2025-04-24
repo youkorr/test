@@ -63,6 +63,20 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_unlock(httpd_req_t *req);
   static esp_err_t handle_webdav_proppatch(httpd_req_t *req);
   static esp_err_t handle_webdav_request(httpd_req_t *req);
+
+    // Déclarations des fonctions handlers
+  static esp_err_t handle_root(httpd_req_t *req);
+  static esp_err_t handle_webdav_options(httpd_req_t *req);
+  static esp_err_t handle_webdav_get(httpd_req_t *req);
+  static esp_err_t handle_webdav_put(httpd_req_t *req);
+  static esp_err_t handle_webdav_delete(httpd_req_t *req);
+  static esp_err_t handle_webdav_mkcol(httpd_req_t *req);
+  static esp_err_t handle_webdav_move(httpd_req_t *req);
+  static esp_err_t handle_webdav_copy(httpd_req_t *req);
+  static esp_err_t handle_webdav_propfind(httpd_req_t *req);
+  static esp_err_t handle_webdav_proppatch(httpd_req_t *req);
+  static esp_err_t handle_webdav_lock(httpd_req_t *req);
+  static esp_err_t handle_webdav_unlock(httpd_req_t *req);
   
   // Helper methods
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
