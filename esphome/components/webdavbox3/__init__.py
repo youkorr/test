@@ -11,7 +11,7 @@ WebDAVBox3 = webdavbox_ns.class_("WebDAVBox3", cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_ID): cv.declare_id(WebDAVBox3),
-    //cv.Optional("root_path", default="/sdcard/"): cv.string,
+    
     cv.Optional("url_prefix", default="/"): cv.string,
     cv.Optional(CONF_PORT, default=8081): cv.port,
     cv.Optional(CONF_USERNAME, default=""): cv.string,
@@ -22,7 +22,7 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     
-    //cg.add(var.set_root_path(config["root_path"]))
+    
     cg.add(var.set_url_prefix(config["url_prefix"]))
     cg.add(var.set_port(config[CONF_PORT]))
     
