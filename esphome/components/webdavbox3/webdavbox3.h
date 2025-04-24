@@ -24,6 +24,7 @@ class WebDAVBox3 : public Component {
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
+  void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
 
  protected:
   httpd_handle_t server_{nullptr};
@@ -31,6 +32,7 @@ class WebDAVBox3 : public Component {
   uint16_t port_{8081};
   std::string username_;
   std::string password_;
+  bool auth_enabled_{false};
   std::string current_path_;
   std::string rename_from_;
 
