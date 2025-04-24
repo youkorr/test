@@ -81,10 +81,21 @@ void WebDAVBox3::configure_http_server() {
   // Generic handler for all WebDAV methods
   httpd_uri_t generic_handler = {
     .uri = "/*",
-    .method = HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_DELETE | 
-              HTTP_OPTIONS | HTTP_HEAD | HTTP_PROPFIND | 
-              HTTP_PROPPATCH | HTTP_MKCOL | HTTP_COPY | 
-              HTTP_MOVE | HTTP_LOCK | HTTP_UNLOCK,
+    .method = (httpd_method_t)(
+      HTTP_GET | 
+      HTTP_POST | 
+      HTTP_PUT | 
+      HTTP_DELETE | 
+      HTTP_OPTIONS | 
+      HTTP_HEAD | 
+      HTTP_PROPFIND | 
+      HTTP_PROPPATCH | 
+      HTTP_MKCOL | 
+      HTTP_COPY | 
+      HTTP_MOVE | 
+      HTTP_LOCK | 
+      HTTP_UNLOCK
+    ),
     .handler = handle_webdav_generic,
     .user_ctx = this
   };
@@ -97,7 +108,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_uri_t root_handler = {
     .uri = "/",
     .method = HTTP_GET,
-    .handler = handle_root,
+    .handler = handle_root_method,
     .user_ctx = this
   };
 
@@ -176,6 +187,12 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
   return path;
 }
 
+// Méthodes de gestion des requêtes WebDAV
+esp_err_t WebDAVBox3::handle_root_method(httpd_req_t *req) {
+  httpd_resp_send(req, "ESP32 WebDAV Server", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
 esp_err_t WebDAVBox3::handle_webdav_generic(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   
@@ -216,17 +233,73 @@ esp_err_t WebDAVBox3::handle_webdav_generic(httpd_req_t *req) {
   }
 }
 
-esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
-  httpd_resp_send(req, "ESP32 WebDAV Server", HTTPD_RESP_USE_STRLEN);
-  return ESP_OK;
-}
-
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
   httpd_resp_set_hdr(req, "DAV", "1, 2");
   httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
+}
+
+// Autres méthodes WebDAV à implémenter
+esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_unlock(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_proppatch(httpd_req_t *req) {
+  // Implémentation à compléter
+  httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
+  return ESP_FAIL;
 }
 
 bool WebDAVBox3::is_dir(const std::string &path) {
