@@ -7,6 +7,7 @@
 #include <sstream>
 #include <fstream>
 #include <ctime>
+#include <iomanip>
 
 namespace esphome {
 namespace webdavbox3 {
@@ -165,7 +166,8 @@ bool WebDAVBox3::authenticate(httpd_req_t *req) {
     return false;
 
   std::string auth_b64 = auth_header + 6;
-  std::string auth_decoded = esphome::base64_decode(auth_b64);
+  // Use esphome's base64_decode function
+  std::string auth_decoded = base64_decode(auth_b64);
   size_t colon_pos = auth_decoded.find(':');
   
   if (colon_pos == std::string::npos)
@@ -209,16 +211,14 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
 
 std::string WebDAVBox3::url_decode(const std::string &src) {
   std::string result;
-  char ch;
-  int i, j;
-  for (i = 0; i < src.length(); i++) {
-    if (src[i] == '%') {
-      if (i + 2 < src.length()) {
-        sscanf(src.substr(i + 1, 2).c_str(), "%x", &j);
-        ch = static_cast<char>(j);
-        result += ch;
-        i += 2;
-      }
+  for (size_t i = 0; i < src.length(); ++i) {
+    if (src[i] == '%' && i + 2 < src.length()) {
+      int hex;
+      std::stringstream ss;
+      ss << std::hex << src.substr(i + 1, 2);
+      ss >> hex;
+      result += static_cast<char>(hex);
+      i += 2;
     } else if (src[i] == '+') {
       result += ' ';
     } else {
@@ -274,6 +274,7 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   
   return xml;
 }
+
 
 // Handler implementations
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
