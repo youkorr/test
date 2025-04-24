@@ -17,6 +17,7 @@ class WebDAVBox3 : public Component {
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
   void set_root_path(const std::string &path) { root_path_ = path; }
+  void set_sd_mmc_card(sd_mmc_card::SdMmc *);
   void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
@@ -25,12 +26,13 @@ class WebDAVBox3 : public Component {
 
  protected:
   httpd_handle_t server_{nullptr};
-  std::string root_path_{"/sdcard"};
-  std::string url_prefix_{"/"};
+  std::string root_path_;
+  std::string url_prefix_;
   uint16_t port_{8081};
   std::string username_;
   std::string password_;
   bool auth_enabled_{false};
+  sd_mmc_card::SdMmc *sd_mmc_card_;
 
   // Configuration methods
   void configure_http_server();
