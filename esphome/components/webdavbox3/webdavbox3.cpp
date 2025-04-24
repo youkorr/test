@@ -35,9 +35,9 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
-  // If SD card is set, ensure we're using its mount point
-  if (sd_mmc_card_ && root_path_.empty()) {
-    root_path_ = sd_mmc_card_->get_mount_point();
+  // Ensure root path is set
+  if (root_path_.empty()) {
+    root_path_ = "/sdcard";  // Default SD card mount point
   }
 
   // Check if root directory exists
@@ -51,7 +51,7 @@ void WebDAVBox3::setup() {
     ESP_LOGE(TAG, "Root path is not a directory: %s", root_path_.c_str());
   }
   
-  ESP_LOGI(TAG, "Using SD mount at %s", root_path_.c_str());
+  ESP_LOGI(TAG, "Using mount at %s", root_path_.c_str());
   this->configure_http_server();
   this->start_server();
 }
