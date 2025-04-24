@@ -21,9 +21,9 @@ class WebDAVBox3 : public Component {
   void set_root_path(const std::string &path) { root_path_ = path; }
   void set_sd_mmc_card(sd_mmc_card::SdMmc *card) { 
     sd_mmc_card_ = card; 
-    // Optionally, set the root path to the SD card's mount point
-    if (card) {
-      root_path_ = card->get_mount_point();
+    // If no root path is set, use a default SD card path
+    if (root_path_.empty()) {
+      root_path_ = "/sdcard";  // Default SD card mount point
     }
   }
   void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
