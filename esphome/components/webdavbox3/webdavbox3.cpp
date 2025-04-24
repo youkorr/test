@@ -35,6 +35,11 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
+  // If SD card is set, ensure we're using its mount point
+  if (sd_mmc_card_ && root_path_.empty()) {
+    root_path_ = sd_mmc_card_->get_mount_point();
+  }
+
   // Check if root directory exists
   struct stat st;
   if (stat(root_path_.c_str(), &st) != 0) {
