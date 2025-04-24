@@ -227,7 +227,27 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
   ESP_LOGD(TAG, "Converted URI '%s' to filepath '%s'", uri, path.c_str());
   return path;
 }
+esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
+  // Récupérer l'URI demandé (par exemple /4k/file.txt)
+  std::string uri = req->uri;
+  ESP_LOGI(TAG, "GET request for file: %s", uri.c_str());
 
+  // Exemple de chemin de stockage, à adapter selon ta config
+  std::string file_path = "/path/to/storage" + uri;  // Construire le chemin absolu du fichier
+
+  // Vérifier si le fichier existe, remplacer par ta logique d'accès aux fichiers
+  FILE *file = fopen(file_path.c_str(), "rb");
+  if (file != nullptr) {
+    // Envoyer le fichier en réponse
+    httpd_resp_send(req, file, /* taille du fichier */);
+    fclose(file);
+  } else {
+    // Fichier non trouvé, renvoyer une erreur 404
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File Not Found");
+  }
+
+  return ESP_OK;
+}
 // WebDAV Handler Methods
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
