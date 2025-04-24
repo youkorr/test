@@ -77,7 +77,21 @@ void WebDAVBox3::configure_http_server() {
   }
   
   ESP_LOGI(TAG, "WebDAV server started on port %d", port_);
-  
+    httpd_uri_t unknown_method_handler = {
+    .uri = "/*",
+    .method = HTTP_ANY,
+    .handler = [](httpd_req_t *req) {
+      auto* inst = static_cast<WebDAVBox3*>(req->user_ctx);
+      switch(req->method) {
+        case HTTP_GET: return inst->handle_webdav_get(req);
+        case HTTP_PUT: return inst->handle_webdav_put(req);
+        // ... autres méthodes connues
+        default: return inst->handle_unknown_method(req);
+      }
+    },
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &unknown_method_handler);
   // Generic handler for all WebDAV methods
   httpd_uri_t generic_handler = {
     .uri = "/*",
@@ -212,7 +226,12 @@ bool WebDAVBox3::authenticate(httpd_req_t *req) {
 
   return (provided_username == username_ && provided_password == password_);
 }
-
+esp_err_t WebDAVBox3::handle_unknown_method(httpd_req_t *req) {
+  ESP_LOGW(TAG, "Méthode non supportée reçue: %d", req->method);
+  httpd_resp_set_status(req, "405 Method Not Allowed");
+  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
+  return httpd_resp_send(req, NULL, 0);
+}
 esp_err_t WebDAVBox3::send_auth_required_response(httpd_req_t *req) {
   httpd_resp_set_status(req, "401 Unauthorized");
   httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"ESP32 WebDAV Server\"");
