@@ -4,9 +4,6 @@
 #include "esphome/core/helpers.h"
 #include <string>
 #include <vector>
-#include "driver/sdmmc_host.h"
-#include "driver/sdmmc_defs.h"
-#include "../sd_mmc_card/sd_mmc_card.h"
 #include "esp_vfs_fat.h"
 #include "esp_netif.h"
 
