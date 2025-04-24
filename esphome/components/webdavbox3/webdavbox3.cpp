@@ -79,10 +79,13 @@ void WebDAVBox3::setup() {
     return;
   }
 
-  if (access(root_path_.c_str(), R_OK | W_OK) != 0) {
+ if (access(root_path_.c_str(), R_OK | W_OK) != 0) {
     ESP_LOGE(TAG, "Insufficient permissions on root directory: %s (errno: %d)", root_path_.c_str(), errno);
-    chmod(root_path_.c_str(), 0755);
-  }
+    // Instead of chmod, try recreating the directory with proper permissions
+    if (rmdir(root_path_.c_str()) == 0) {
+        mkdir(root_path_.c_str(), 0755);
+    }
+}
   
   ESP_LOGI(TAG, "Using SD mount at %s", root_path_.c_str());
   this->configure_http_server();
