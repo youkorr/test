@@ -63,118 +63,63 @@ void WebDAVBox3::configure_http_server() {
   config.lru_purge_enable = true;
   config.recv_wait_timeout = 30;
   config.send_wait_timeout = 30;
-  
+
   if (server_ != nullptr) {
     ESP_LOGW(TAG, "Server already started, stopping previous instance");
     httpd_stop(server_);
     server_ = nullptr;
   }
-  
+
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start server on port %d", port_);
     server_ = nullptr;
     return;
   }
-  
+
   ESP_LOGI(TAG, "WebDAV server started on port %d", port_);
-  
-  // Liste des méthodes que tu veux gérer
-  std::vector<http_method> methods = { HTTP_GET, HTTP_PUT, HTTP_POST, HTTP_DELETE, HTTP_HEAD, HTTP_OPTIONS };
-  
-  for (auto method : methods) {
-    httpd_uri_t handler = {
+
+  // Fallback handler pour méthodes non spécifiques
+  std::vector<http_method> fallback_methods = {
+    HTTP_GET, HTTP_POST, HTTP_HEAD, HTTP_PATCH, HTTP_TRACE
+  };
+
+  for (auto method : fallback_methods) {
+    httpd_uri_t fallback_handler = {
       .uri = "/*",
       .method = method,
-      .handler = [](httpd_req_t *req) {
+      .handler = [](httpd_req_t *req) -> esp_err_t {
         auto* inst = static_cast<WebDAVBox3*>(req->user_ctx);
-        switch (req->method) {
-          case HTTP_GET: return inst->handle_webdav_get(req);
-          case HTTP_PUT: return inst->handle_webdav_put(req);
-          // Ajoute d'autres méthodes si nécessaire
-          default: return inst->handle_unknown_method(req);
-        }
+        return inst->handle_unknown_method(req);
       },
       .user_ctx = this
     };
-  
-    httpd_register_uri_handler(this->server_, &handler);
-  }
 
-  if (httpd_register_uri_handler(server_, &generic_handler) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to register generic handler");
-  }
-
-  // Additional specific handlers for different methods
-  httpd_uri_t handlers[] = {
-    {
-      .uri = "/*",
-      .method = HTTP_PUT,
-      .handler = handle_webdav_put,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_DELETE,
-      .handler = handle_webdav_delete,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_PROPFIND,
-      .handler = handle_webdav_propfind,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_OPTIONS,
-      .handler = handle_webdav_options,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_MKCOL,
-      .handler = handle_webdav_mkcol,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_MOVE,
-      .handler = handle_webdav_move,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_COPY,
-      .handler = handle_webdav_copy,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_LOCK,
-      .handler = handle_webdav_lock,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_UNLOCK,
-      .handler = handle_webdav_unlock,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_PROPPATCH,
-      .handler = handle_webdav_proppatch,
-      .user_ctx = this
+    if (httpd_register_uri_handler(server_, &fallback_handler) != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to register fallback handler for method %d", method);
     }
+  }
+
+  // Handlers spécifiques WebDAV
+  httpd_uri_t handlers[] = {
+    { .uri = "/*", .method = HTTP_PUT,       .handler = handle_webdav_put,       .user_ctx = this },
+    { .uri = "/*", .method = HTTP_DELETE,    .handler = handle_webdav_delete,    .user_ctx = this },
+    { .uri = "/*", .method = HTTP_PROPFIND,  .handler = handle_webdav_propfind,  .user_ctx = this },
+    { .uri = "/*", .method = HTTP_OPTIONS,   .handler = handle_webdav_options,   .user_ctx = this },
+    { .uri = "/*", .method = HTTP_MKCOL,     .handler = handle_webdav_mkcol,     .user_ctx = this },
+    { .uri = "/*", .method = HTTP_MOVE,      .handler = handle_webdav_move,      .user_ctx = this },
+    { .uri = "/*", .method = HTTP_COPY,      .handler = handle_webdav_copy,      .user_ctx = this },
+    { .uri = "/*", .method = HTTP_LOCK,      .handler = handle_webdav_lock,      .user_ctx = this },
+    { .uri = "/*", .method = HTTP_UNLOCK,    .handler = handle_webdav_unlock,    .user_ctx = this },
+    { .uri = "/*", .method = HTTP_PROPPATCH, .handler = handle_webdav_proppatch, .user_ctx = this }
   };
 
   for (const auto &handler : handlers) {
     if (httpd_register_uri_handler(server_, &handler) != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to register handler");
+      ESP_LOGE(TAG, "Failed to register WebDAV handler for method %d", handler.method);
     }
   }
 
-  // Root handler
+  // Handler pour la racine "/"
   httpd_uri_t root_handler = {
     .uri = "/",
     .method = HTTP_GET,
@@ -186,6 +131,9 @@ void WebDAVBox3::configure_http_server() {
     ESP_LOGE(TAG, "Failed to register root handler");
   }
 }
+
+
+
 
 void WebDAVBox3::start_server() {
   if (server_ != nullptr)
