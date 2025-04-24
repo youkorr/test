@@ -245,6 +245,13 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
 
 // WebDAV Handler Methods
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
+  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+  
+  // Authentication
+  if (inst->auth_enabled_ && !inst->authenticate(req)) {
+    return inst->send_auth_required_response(req);
+  }
+
   httpd_resp_send(req, "ESP32 WebDAV Server", HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }
@@ -267,7 +274,7 @@ esp_err_t WebDAVBox3::handle_webdav_generic(httpd_req_t *req) {
 
   if (S_ISDIR(st.st_mode)) {
     // If it's a directory, list contents
-    std::vector<std::string> files = list_dir(path);
+    std::vector<std::string> files = inst->list_dir(path);
     std::string response = "Directory Contents:\n";
     for (const auto &file : files) {
       response += file + "\n";
@@ -385,10 +392,10 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   std::string response = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                          "<D:multistatus xmlns:D=\"DAV:\">\n";
   
-  response += generate_prop_xml(req->uri, S_ISDIR(st.st_mode), st.st_mtime, st.st_size);
+  response += inst->generate_prop_xml(req->uri, S_ISDIR(st.st_mode), st.st_mtime, st.st_size);
   
   if (S_ISDIR(st.st_mode)) {
-    auto files = list_dir(path);
+    auto files = inst->list_dir(path);
     for (const auto &file : files) {
       std::string full_path = path + "/" + file;
       struct stat file_st;
@@ -396,7 +403,7 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
         std::string file_uri = std::string(req->uri) + 
                                 (req->uri[strlen(req->uri)-1] == '/' ? "" : "/") + 
                                 file;
-        response += generate_prop_xml(file_uri, S_ISDIR(file_st.st_mode), file_st.st_mtime, file_st.st_size);
+        response += inst->generate_prop_xml(file_uri, S_ISDIR(file_st.st_mode), file_st.st_mtime, file_st.st_size);
       }
     }
   }
@@ -409,7 +416,6 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   return ESP_OK;
 }
 
-// Placeholder implementations for remaining methods
 esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   
