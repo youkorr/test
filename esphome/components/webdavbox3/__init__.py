@@ -1,12 +1,18 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_USERNAME, CONF_PASSWORD, CONF_PORT
+from esphome.const import (
+    CONF_ID, 
+    CONF_USERNAME, 
+    CONF_PASSWORD, 
+    CONF_PORT,
+    CONF_ROOT_PATH  # Add this import
+)
 from .. import sd_mmc_card
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["sd_mmc_card"]
 
-MULTI_CONF = False  # Si tu prévois un seul composant, sinon mets True si c'est une liste
+MULTI_CONF = False
 
 webdavbox_ns = cg.esphome_ns.namespace("webdavbox3")
 WebDAVBox3 = webdavbox_ns.class_("WebDAVBox3", cg.Component)
@@ -30,7 +36,7 @@ async def to_code(config):
     cg.add(var.set_sd_mmc_card(sdmmc))
     cg.add(var.set_url_prefix(config["url_prefix"]))
     cg.add(var.set_port(config[CONF_PORT]))
-    cg.add(var.set_root_path(config["root_path"]))
+    cg.add(var.set_root_path(config[CONF_ROOT_PATH]))
     if CONF_USERNAME in config:
         cg.add(var.set_username(config[CONF_USERNAME]))
     if CONF_PASSWORD in config:
