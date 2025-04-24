@@ -119,6 +119,15 @@ void WebDAVBox3::configure_http_server() {
     }
   }
 
+  httpd_uri_t post_root_handler = {
+    .uri = "/",
+    .method = HTTP_POST,
+    .handler = [](httpd_req_t *req) -> esp_err_t {
+      auto* inst = static_cast<WebDAVBox3*>(req->user_ctx);
+      return inst->handle_unknown_method(req); // Ou autre
+    },
+    .user_ctx = this
+  };
   // Handler pour la racine "/"
   httpd_uri_t root_handler = {
     .uri = "/",
