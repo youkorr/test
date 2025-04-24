@@ -139,9 +139,18 @@ void WebDAVBox3::configure_http_server() {
   if (httpd_register_uri_handler(server_, &root_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register root handler");
   }
+  httpd_uri_t propfind_root_handler = {
+    .uri = "/",
+    .method = HTTP_PROPFIND,
+    .handler = handle_webdav_propfind,
+    .user_ctx = this
+ };
+
+  if (httpd_register_uri_handler(server_, &propfind_root_handler) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register PROPFIND / handler");
+  }
+
 }
-
-
 
 
 void WebDAVBox3::start_server() {
