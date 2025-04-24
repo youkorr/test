@@ -16,8 +16,16 @@ class WebDAVBox3 : public Component {
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
+  
+  // Setters
   void set_root_path(const std::string &path) { root_path_ = path; }
-  void set_sd_mmc_card(sd_mmc_card::SdMmc *);
+  void set_sd_mmc_card(sd_mmc_card::SdMmc *card) { 
+    sd_mmc_card_ = card; 
+    // Optionally, set the root path to the SD card's mount point
+    if (card) {
+      root_path_ = card->get_mount_point();
+    }
+  }
   void set_url_prefix(const std::string &prefix) { url_prefix_ = prefix; }
   void set_port(uint16_t port) { port_ = port; }
   void set_username(const std::string &username) { username_ = username; }
@@ -25,6 +33,7 @@ class WebDAVBox3 : public Component {
   void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
 
  protected:
+  // Server and configuration
   httpd_handle_t server_{nullptr};
   std::string root_path_;
   std::string url_prefix_;
@@ -32,7 +41,7 @@ class WebDAVBox3 : public Component {
   std::string username_;
   std::string password_;
   bool auth_enabled_{false};
-  sd_mmc_card::SdMmc *sd_mmc_card_;
+  sd_mmc_card::SdMmc *sd_mmc_card_{nullptr};
 
   // Configuration methods
   void configure_http_server();
@@ -49,12 +58,13 @@ class WebDAVBox3 : public Component {
   // WebDAV handler methods
   static esp_err_t handle_unknown_method(httpd_req_t *req);
   static esp_err_t handle_root(httpd_req_t *req);
-  static esp_err_t handle_webdav_generic(httpd_req_t *req);
-  static esp_err_t handle_webdav_options(httpd_req_t *req);
+  
+  // WebDAV specific method handlers
   static esp_err_t handle_webdav_get(httpd_req_t *req);
   static esp_err_t handle_webdav_put(httpd_req_t *req);
   static esp_err_t handle_webdav_delete(httpd_req_t *req);
   static esp_err_t handle_webdav_propfind(httpd_req_t *req);
+  static esp_err_t handle_webdav_options(httpd_req_t *req);
   static esp_err_t handle_webdav_mkcol(httpd_req_t *req);
   static esp_err_t handle_webdav_move(httpd_req_t *req);
   static esp_err_t handle_webdav_copy(httpd_req_t *req);
@@ -62,7 +72,7 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_unlock(httpd_req_t *req);
   static esp_err_t handle_webdav_proppatch(httpd_req_t *req);
   
-  // Helper methods
+  // Utility methods
   bool is_dir(const std::string &path);
   std::vector<std::string> list_dir(const std::string &path);
   std::string generate_prop_xml(const std::string &href, bool is_directory, time_t modified, size_t size);
