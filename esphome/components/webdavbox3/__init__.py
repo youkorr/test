@@ -3,7 +3,8 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_USERNAME, CONF_PASSWORD, CONF_PORT
 
 CODEOWNERS = ["@youkorr"]
-DEPENDENCIES = ["sd_mmc_card"]
+DEPENDENCIES = ['network']
+
 MULTI_CONF = False  # Si tu prévois un seul composant, sinon mets True si c'est une liste
 
 webdavbox_ns = cg.esphome_ns.namespace("webdavbox3")
@@ -13,6 +14,7 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_ID): cv.declare_id(WebDAVBox3),
     
     cv.Optional("url_prefix", default="/"): cv.string,
+    cv.Optional("root_path", default="/sdcard/"): cv.string,
     cv.Optional(CONF_PORT, default=8081): cv.port,
     cv.Optional(CONF_USERNAME, default=""): cv.string,
     cv.Optional(CONF_PASSWORD, default=""): cv.string,
@@ -25,7 +27,7 @@ async def to_code(config):
     
     cg.add(var.set_url_prefix(config["url_prefix"]))
     cg.add(var.set_port(config[CONF_PORT]))
-    
+    cg.add(var.set_root_path(config["root_path"]))
     if CONF_USERNAME in config:
         cg.add(var.set_username(config[CONF_USERNAME]))
     if CONF_PASSWORD in config:
