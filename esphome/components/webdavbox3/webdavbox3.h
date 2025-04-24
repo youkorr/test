@@ -47,6 +47,7 @@ class WebDAVBox3 : public Component {
   std::string uri_to_filepath(const char* uri);
   
   // WebDAV handler methods
+  static esp_err_t handle_unknown_method(httpd_req_t *req);
   static esp_err_t handle_root(httpd_req_t *req);
   static esp_err_t handle_webdav_generic(httpd_req_t *req);
   static esp_err_t handle_webdav_options(httpd_req_t *req);
