@@ -13,6 +13,9 @@
 namespace esphome {
 namespace webdavbox3 {
 
+// Declare url_decode as a standalone function
+std::string url_decode(const std::string &src);
+
 class WebDAVBox3 : public Component {
  public:
   void setup() override;
