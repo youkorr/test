@@ -14,8 +14,28 @@ namespace webdavbox3 {
 
 static const char *const TAG = "webdavbox3";
 
+// URL Decoding function
+std::string url_decode(const std::string &src) {
+  std::string result;
+  for (size_t i = 0; i < src.length(); ++i) {
+    if (src[i] == '%' && i + 2 < src.length()) {
+      int hex;
+      std::stringstream ss;
+      ss << std::hex << src.substr(i + 1, 2);
+      ss >> hex;
+      result += static_cast<char>(hex);
+      i += 2;
+    } else if (src[i] == '+') {
+      result += ' ';
+    } else {
+      result += src[i];
+    }
+  }
+  return result;
+}
+
 void WebDAVBox3::setup() {
-  // Vérifier si le répertoire racine existe
+  // Check if root directory exists
   struct stat st;
   if (stat(root_path_.c_str(), &st) != 0) {
     ESP_LOGE(TAG, "Root directory doesn't exist: %s (errno: %d)", root_path_.c_str(), errno);
@@ -166,8 +186,10 @@ bool WebDAVBox3::authenticate(httpd_req_t *req) {
     return false;
 
   std::string auth_b64 = auth_header + 6;
-  // Use esphome's base64_decode function
-  std::string auth_decoded = base64_decode(auth_b64);
+  // Use esphome's base64_decode function and convert to string
+  std::vector<uint8_t> decoded_vec = base64_decode(auth_b64);
+  std::string auth_decoded(decoded_vec.begin(), decoded_vec.end());
+
   size_t colon_pos = auth_decoded.find(':');
   
   if (colon_pos == std::string::npos)
@@ -207,25 +229,6 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
 
   ESP_LOGD(TAG, "Converted URI '%s' to filepath '%s'", uri, path.c_str());
   return path;
-}
-
-std::string WebDAVBox3::url_decode(const std::string &src) {
-  std::string result;
-  for (size_t i = 0; i < src.length(); ++i) {
-    if (src[i] == '%' && i + 2 < src.length()) {
-      int hex;
-      std::stringstream ss;
-      ss << std::hex << src.substr(i + 1, 2);
-      ss >> hex;
-      result += static_cast<char>(hex);
-      i += 2;
-    } else if (src[i] == '+') {
-      result += ' ';
-    } else {
-      result += src[i];
-    }
-  }
-  return result;
 }
 
 bool WebDAVBox3::is_dir(const std::string &path) {
@@ -274,7 +277,6 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   
   return xml;
 }
-
 
 // Handler implementations
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
@@ -618,57 +620,57 @@ esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
                         "  <D:lockdiscovery>\n"
                         "    <D:activelock>\n"
                         "      <D:locktype><D:write/></D:locktype>\n"
-						"      <D:lockscope><D:exclusive/></D:lockscope>\n"
-						"      <D:depth>0</D:depth>\n"
-						"      <D:timeout>Second-600</D:timeout>\n"
-						"    </D:activelock>\n"
-						"  </D:lockdiscovery>\n"
-						"</D:prop>";
+                        "      <D:lockscope><D:exclusive/></D:lockscope>\n"
+                        "      <D:depth>0</D:depth>\n"
+                        "      <D:timeout>Second-600</D:timeout>\n"
+                        "    </D:activelock>\n"
+                        "  </D:lockdiscovery>\n"
+                        "</D:prop>";
 
-httpd_resp_set_type(req, "application/xml");
-httpd_resp_set_status(req, "200 OK");
-httpd_resp_send(req, response.c_str(), response.length());
-return ESP_OK;
+  httpd_resp_set_type(req, "application/xml");
+  httpd_resp_set_status(req, "200 OK");
+  httpd_resp_send(req, response.c_str(), response.length());
+  return ESP_OK;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_unlock(httpd_req_t *req) {
-auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
 
-if (inst->auth_enabled_ && !inst->authenticate(req)) {
-return inst->send_auth_required_response(req);
-}
+  if (inst->auth_enabled_ && !inst->authenticate(req)) {
+    return inst->send_auth_required_response(req);
+  }
 
-ESP_LOGD(TAG, "UNLOCK %s", req->uri);
+  ESP_LOGD(TAG, "UNLOCK %s", req->uri);
 
-httpd_resp_set_status(req, "204 No Content");
-httpd_resp_send(req, NULL, 0);
-return ESP_OK;
+  httpd_resp_set_status(req, "204 No Content");
+  httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_proppatch(httpd_req_t *req) {
-auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
 
-if (inst->auth_enabled_ && !inst->authenticate(req)) {
-return inst->send_auth_required_response(req);
-}
+  if (inst->auth_enabled_ && !inst->authenticate(req)) {
+    return inst->send_auth_required_response(req);
+  }
 
-ESP_LOGD(TAG, "PROPPATCH %s", req->uri);
+  ESP_LOGD(TAG, "PROPPATCH %s", req->uri);
 
-						std::string response = "\n"
-						"<D:multistatus xmlns:D="DAV:">\n"
-						"  <D:response>\n"
-						"    <D:href>" + std::string(req->uri) + "</D:href>\n"
-						"    <D:propstat>\n"
-						"      <D:prop></D:prop>\n"
-						"      <D:status>HTTP/1.1 200 OK</D:status>\n"
-						"    </D:propstat>\n"
-						"  </D:response>\n"
-						"</D:multistatus>";
+  std::string response = 
+    "<D:multistatus xmlns:D=\"DAV:\">\n"
+    "  <D:response>\n"
+    "    <D:href>" + std::string(req->uri) + "</D:href>\n"
+    "    <D:propstat>\n"
+    "      <D:prop></D:prop>\n"
+    "      <D:status>HTTP/1.1 200 OK</D:status>\n"
+    "    </D:propstat>\n"
+    "  </D:response>\n"
+    "</D:multistatus>";
 
-httpd_resp_set_type(req, "application/xml");
-httpd_resp_set_status(req, "207 Multi-Status");
-httpd_resp_send(req, response.c_str(), response.length());
-return ESP_OK;
+  httpd_resp_set_type(req, "application/xml");
+  httpd_resp_set_status(req, "207 Multi-Status");
+  httpd_resp_send(req, response.c_str(), response.length());
+  return ESP_OK;
 }
 
 }  // namespace webdavbox3
