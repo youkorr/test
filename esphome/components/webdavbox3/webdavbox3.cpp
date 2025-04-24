@@ -149,7 +149,17 @@ void WebDAVBox3::configure_http_server() {
   if (httpd_register_uri_handler(server_, &propfind_root_handler) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to register PROPFIND / handler");
   }
-
+// Gestionnaire pour GET /* (tous les chemins)
+  httpd_uri_t get_handler = {
+    .uri = "/*",
+    .method = HTTP_GET,
+    .handler = handle_webdav_get,  // Assurez-vous que cette fonction est implémentée
+    .user_ctx = this
+  };
+  
+  if (httpd_register_uri_handler(server_, &get_handler) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register GET handler");
+  }
 }
 
 
