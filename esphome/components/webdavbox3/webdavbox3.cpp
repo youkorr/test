@@ -220,22 +220,33 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
   std::string path = root_path_;
   std::string uri_str = uri;
 
+  // Gestion du préfixe d'URL
   if (!url_prefix_.empty() && uri_str.find(url_prefix_) == 0) {
     uri_str = uri_str.substr(url_prefix_.length());
   }
 
-  if (!uri_str.empty() && uri_str[0] == '/') {
+  // Supprimer les slashs en double
+  while (!uri_str.empty() && uri_str[0] == '/') {
     uri_str = uri_str.substr(1);
   }
 
+  // S'assurer que le chemin racine se termine par un slash
   if (!path.empty() && path.back() != '/') {
     path += '/';
   }
 
+  // Cas spécial pour la racine
+  if (uri_str.empty()) {
+    return path;
+  }
+
+  // Décoder les caractères URL
   uri_str = url_decode(uri_str);
+
+  // Combiner les chemins
   path += uri_str;
 
-  ESP_LOGD(TAG, "Converted URI '%s' to filepath '%s'", uri, path.c_str());
+  ESP_LOGD(TAG, "Conversion URI '%s' vers chemin '%s'", uri, path.c_str());
   return path;
 }
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
