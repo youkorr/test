@@ -59,7 +59,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = port_;
   config.ctrl_port = port_ + 1000;
-  config.max_uri_handlers = 16;
+  config.max_uri_handlers = 20;
   config.lru_purge_enable = true;
   config.recv_wait_timeout = 30;
   config.send_wait_timeout = 30;
@@ -78,86 +78,31 @@ void WebDAVBox3::configure_http_server() {
   
   ESP_LOGI(TAG, "WebDAV server started on port %d", port_);
   
-  // Register URI handlers
-  httpd_uri_t uri_handlers[] = {
-    {
-      .uri = "/",
-      .method = HTTP_GET,
-      .handler = handle_root,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_OPTIONS,
-      .handler = handle_webdav_options,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_PROPFIND,
-      .handler = handle_webdav_propfind,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_GET,
-      .handler = handle_webdav_get,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_PUT,
-      .handler = handle_webdav_put,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_DELETE,
-      .handler = handle_webdav_delete,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_MKCOL,
-      .handler = handle_webdav_mkcol,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_MOVE,
-      .handler = handle_webdav_move,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_COPY,
-      .handler = handle_webdav_copy,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_LOCK,
-      .handler = handle_webdav_lock,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_UNLOCK,
-      .handler = handle_webdav_unlock,
-      .user_ctx = this
-    },
-    {
-      .uri = "/*",
-      .method = HTTP_PROPPATCH,
-      .handler = handle_webdav_proppatch,
-      .user_ctx = this
-    }
+  // Generic handler for all WebDAV methods
+  httpd_uri_t generic_handler = {
+    .uri = "/*",
+    .method = HTTP_GET | HTTP_POST | HTTP_PUT | HTTP_DELETE | 
+              HTTP_OPTIONS | HTTP_HEAD | HTTP_PROPFIND | 
+              HTTP_PROPPATCH | HTTP_MKCOL | HTTP_COPY | 
+              HTTP_MOVE | HTTP_LOCK | HTTP_UNLOCK,
+    .handler = handle_webdav_generic,
+    .user_ctx = this
   };
-  
-  for (const auto &handler : uri_handlers) {
-    if (httpd_register_uri_handler(server_, &handler) != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to register handler for %s", handler.uri);
-    }
+
+  if (httpd_register_uri_handler(server_, &generic_handler) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register generic handler");
+  }
+
+  // Root handler
+  httpd_uri_t root_handler = {
+    .uri = "/",
+    .method = HTTP_GET,
+    .handler = handle_root,
+    .user_ctx = this
+  };
+
+  if (httpd_register_uri_handler(server_, &root_handler) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register root handler");
   }
 }
 
@@ -229,6 +174,59 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
 
   ESP_LOGD(TAG, "Converted URI '%s' to filepath '%s'", uri, path.c_str());
   return path;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_generic(httpd_req_t *req) {
+  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+  
+  // Authentication
+  if (inst->auth_enabled_ && !inst->authenticate(req)) {
+    return inst->send_auth_required_response(req);
+  }
+
+  // Dispatch based on HTTP method
+  switch (req->method) {
+    case HTTP_GET:
+      return handle_webdav_get(req);
+    case HTTP_PUT:
+      return handle_webdav_put(req);
+    case HTTP_DELETE:
+      return handle_webdav_delete(req);
+    case HTTP_PROPFIND:
+      return handle_webdav_propfind(req);
+    case HTTP_OPTIONS:
+      return handle_webdav_options(req);
+    case HTTP_MKCOL:
+      return handle_webdav_mkcol(req);
+    case HTTP_MOVE:
+      return handle_webdav_move(req);
+    case HTTP_COPY:
+      return handle_webdav_copy(req);
+    case HTTP_LOCK:
+      return handle_webdav_lock(req);
+    case HTTP_UNLOCK:
+      return handle_webdav_unlock(req);
+    case HTTP_PROPPATCH:
+      return handle_webdav_proppatch(req);
+    default:
+      // Unsupported method
+      httpd_resp_set_status(req, "405 Method Not Allowed");
+      httpd_resp_send(req, NULL, 0);
+      return ESP_FAIL;
+  }
+}
+
+esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
+  httpd_resp_send(req, "ESP32 WebDAV Server", HTTPD_RESP_USE_STRLEN);
+  return ESP_OK;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
+  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
+  httpd_resp_set_hdr(req, "DAV", "1, 2");
+  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
+  httpd_resp_send(req, NULL, 0);
+  return ESP_OK;
 }
 
 bool WebDAVBox3::is_dir(const std::string &path) {
