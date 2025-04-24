@@ -216,30 +216,51 @@ void WebDAVBox3::stop_server() {
 }
 esp_err_t WebDAVBox3::handle_webdav_request(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-    ESP_LOGD(TAG, "Requête %s sur %s", req->method, req->uri);
-
-    // Route vers les gestionnaires existants
-    if (strcmp(req->method, "GET") == 0) {
+    
+    // Get the method as a string from the request
+    char method_str[16] = {0}; // Buffer for the method string
+    
+    // In ESP-IDF, you can get the method string using httpd_req_get_method
+    // If that's not available, use httpd_method_name which converts enum to string
+    const char* method = httpd_method_name(static_cast<httpd_method_t>(req->method));
+    if (method != NULL) {
+        strncpy(method_str, method, sizeof(method_str) - 1);
+    } else {
+        // Fallback for custom WebDAV methods not defined in standard enum
+        // You might need to extract these from headers or use a different approach
+        // This is a simplified example
+        ESP_LOGW(TAG, "Unknown method enum: %d", req->method);
+        snprintf(method_str, sizeof(method_str), "UNKNOWN(%d)", req->method);
+    }
+    
+    ESP_LOGD(TAG, "Requête %s sur %s", method_str, req->uri);
+    
+    // Route to the existing handlers
+    if (strcmp(method_str, "GET") == 0) {
         return inst->handle_webdav_get(req);
-    } else if (strcmp(req->method, "PUT") == 0) {
+    } else if (strcmp(method_str, "PUT") == 0) {
         return inst->handle_webdav_put(req);
-    } else if (strcmp(req->method, "PROPFIND") == 0) {
+    } else if (strcmp(method_str, "PROPFIND") == 0) {
         return inst->handle_webdav_propfind(req);
-    } else if (strcmp(req->method, "DELETE") == 0) {
+    } else if (strcmp(method_str, "DELETE") == 0) {
         return inst->handle_webdav_delete(req);
-    } else if (strcmp(req->method, "MKCOL") == 0) {
+    } else if (strcmp(method_str, "MKCOL") == 0) {
         return inst->handle_webdav_mkcol(req);
-    } else if (strcmp(req->method, "MOVE") == 0) {
+    } else if (strcmp(method_str, "MOVE") == 0) {
         return inst->handle_webdav_move(req);
-    } else if (strcmp(req->method, "COPY") == 0) {
+    } else if (strcmp(method_str, "COPY") == 0) {
         return inst->handle_webdav_copy(req);
-    } else if (strcmp(req->method, "PROPPATCH") == 0) {
+    } else if (strcmp(method_str, "PROPPATCH") == 0) {
         return inst->handle_webdav_proppatch(req);
-    } else if (strcmp(req->method, "LOCK") == 0) {
+    } else if (strcmp(method_str, "LOCK") == 0) {
         return inst->handle_webdav_lock(req);
-    } else if (strcmp(req->method, "UNLOCK") == 0) {
+    } else if (strcmp(method_str, "UNLOCK") == 0) {
         return inst->handle_webdav_unlock(req);
     }
+    
+    ESP_LOGW(TAG, "Méthode non supportée: %s", method_str);
+    return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+}
 
     ESP_LOGW(TAG, "Méthode non supportée: %s", req->method);
     return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
