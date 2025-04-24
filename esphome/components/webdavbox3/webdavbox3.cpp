@@ -187,7 +187,7 @@ std::string WebDAVBox3::uri_to_filepath(const char* uri) {
   return path;
 }
 
-// Méthodes de gestion des requêtes WebDAV
+// WebDAV Handler Methods
 esp_err_t WebDAVBox3::handle_root_method(httpd_req_t *req) {
   httpd_resp_send(req, "ESP32 WebDAV Server", HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
@@ -241,67 +241,58 @@ esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   return ESP_OK;
 }
 
-// Autres méthodes WebDAV à implémenter
+// Placeholder implementations for other WebDAV methods
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_copy(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_unlock(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_proppatch(httpd_req_t *req) {
-  // Implémentation à compléter
   httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Not implemented");
   return ESP_FAIL;
 }
 
+// Utility methods
 bool WebDAVBox3::is_dir(const std::string &path) {
   struct stat st;
   if (stat(path.c_str(), &st) == 0)
