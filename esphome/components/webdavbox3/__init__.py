@@ -4,13 +4,15 @@ from esphome.const import (
     CONF_ID, 
     CONF_USERNAME, 
     CONF_PASSWORD, 
-    CONF_PORT,
-    CONF_ROOT_PATH  # Add this import
+    CONF_PORT
 )
 from .. import sd_mmc_card
 
 CODEOWNERS = ["@youkorr"]
 DEPENDENCIES = ["sd_mmc_card"]
+
+# Define our own constant for root path
+CONF_ROOT_PATH = "root_path"
 
 MULTI_CONF = False
 
@@ -43,6 +45,7 @@ async def to_code(config):
         cg.add(var.set_password(config[CONF_PASSWORD]))
     
     return var
+
 
 
 
