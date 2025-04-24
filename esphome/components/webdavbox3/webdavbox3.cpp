@@ -1,5 +1,4 @@
 #include "webdavbox3.h"
-#include "../sd_mmc_card/sd_mmc_card.h"
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
 #include <sys/stat.h>
