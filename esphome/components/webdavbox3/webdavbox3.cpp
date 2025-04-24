@@ -274,28 +274,26 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
   std::string uri = req->uri;
   std::string path = root_path;
   
-  // Décoder l'URL
+  // Décoder l'URL pour gérer les caractères spéciaux
   uri = url_decode(uri);
   
-  // Vérifier si le chemin racine se termine par un '/'
-  if (path.back() != '/') {
-    path += '/';
+  // Nettoyer le chemin root
+  if (path.back() == '/') {
+    path.pop_back();
   }
   
-  // Supprimer le premier '/' de l'URI s'il existe
+  // Nettoyer l'URI
   if (!uri.empty() && uri.front() == '/') {
     uri = uri.substr(1);
   }
   
-  // Si c'est la racine, retourner le chemin racine sans ajouter de '/'
-  if (uri.empty()) {
-    return path.substr(0, path.length() - 1); // Enlever le dernier '/'
-  }
+  // Construire le chemin complet
+  std::string full_path = path + "/" + uri;
   
-  path += uri;
+  ESP_LOGD(TAG, "URI: %s, Root: %s, Full Path: %s", 
+           uri.c_str(), path.c_str(), full_path.c_str());
   
-  ESP_LOGD(TAG, "Mapped URI %s to path %s", req->uri, path.c_str());
-  return path;
+  return full_path;
 }
 
 bool WebDAVBox3::is_dir(const std::string &path) {
@@ -438,174 +436,45 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
-  ESP_LOGD(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
   
-  // Vérifier si c'est un répertoire
-  if (is_dir(path)) {
-    ESP_LOGD(TAG, "C'est un répertoire, redirection vers PROPFIND");
+  ESP_LOGD(TAG, "GET Request - Path: %s", path.c_str());
+  
+  // Vérifier si le fichier existe
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "File not found: %s (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  }
+  
+  // Si c'est un répertoire
+  if (S_ISDIR(st.st_mode)) {
     return handle_webdav_propfind(req);
   }
   
-  // Vérifier explicitement si le fichier existe
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-  }
-  
+  // Ouvrir et lire le fichier
   FILE *file = fopen(path.c_str(), "rb");
   if (!file) {
-    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    ESP_LOGE(TAG, "Failed to open file: %s (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
   }
   
-  // Obtenir la taille du fichier
-  fseek(file, 0, SEEK_END);
-  size_t file_size = ftell(file);
-  fseek(file, 0, SEEK_SET);
+  // Définir les en-têtes de réponse
+  httpd_resp_set_type(req, "application/octet-stream");
+  httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
+  httpd_resp_set_hdr(req, "Content-Length", std::to_string(st.st_size).c_str());
   
-  // Déterminer le type MIME en fonction de l'extension
-  std::string content_type = "application/octet-stream"; // Type par défaut
-  std::string extension = "";
-  
-  // Extraire l'extension du fichier
-  size_t dot_pos = path.find_last_of(".");
-  if (dot_pos != std::string::npos) {
-    extension = path.substr(dot_pos + 1);
-    // Convertir l'extension en minuscules pour la comparaison
-    std::transform(extension.begin(), extension.end(), extension.begin(), 
-                  [](unsigned char c) { return std::tolower(c); });
-    
-    // Attribuer le type MIME selon l'extension
-    if (extension == "mp3") {
-      content_type = "audio/mpeg";
-    } else if (extension == "mp4") {
-      content_type = "video/mp4";
-    } else if (extension == "wav" || extension == "wave") {
-      content_type = "audio/wav";
-    } else if (extension == "txt") {
-      content_type = "text/plain";
-    } else if (extension == "html" || extension == "htm") {
-      content_type = "text/html";
-    } else if (extension == "pdf") {
-      content_type = "application/pdf";
-    } else if (extension == "jpg" || extension == "jpeg") {
-      content_type = "image/jpeg";
-    } else if (extension == "png") {
-      content_type = "image/png";
-    } else if (extension == "gif") {
-      content_type = "image/gif";
-    } else if (extension == "json") {
-      content_type = "application/json";
-    } else if (extension == "xml") {
-      content_type = "application/xml";
-    } else if (extension == "css") {
-      content_type = "text/css";
-    } else if (extension == "js") {
-      content_type = "application/javascript";
-    }
-  }
-  
-  ESP_LOGD(TAG, "Type de fichier détecté: %s pour l'extension %s", content_type.c_str(), extension.c_str());
-  
-  // Définir le type de contenu et la longueur
-  httpd_resp_set_type(req, content_type.c_str());
-  httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
-  
-  // Ajouter l'en-tête Content-Disposition pour les fichiers média
-  if (extension == "mp3" || extension == "mp4" || extension == "wav" || extension == "wave") {
-    // Extraire le nom du fichier du chemin
-    std::string filename = path;
-    size_t last_slash = path.find_last_of("/\\");
-    if (last_slash != std::string::npos) {
-      filename = path.substr(last_slash + 1);
-    }
-    
-    std::string disposition = "attachment; filename=\"" + filename + "\"";
-    httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
-  }
-  
-  char buffer[1024];
+  // Lire et envoyer le fichier par morceaux
+  char buf[1024];
   size_t read_bytes;
-  size_t total_sent = 0;
-  
-  while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-    esp_err_t err = httpd_resp_send_chunk(req, buffer, read_bytes);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d", err);
+  while ((read_bytes = fread(buf, 1, sizeof(buf), file)) > 0) {
+    if (httpd_resp_send_chunk(req, buf, read_bytes) != ESP_OK) {
       fclose(file);
-      return err;
+      return ESP_FAIL;
     }
-    total_sent += read_bytes;
   }
-  
-  ESP_LOGD(TAG, "Fichier envoyé: %s, taille: %zu octets, type: %s", 
-           path.c_str(), total_sent, content_type.c_str());
   
   fclose(file);
-  httpd_resp_send_chunk(req, nullptr, 0);
-  return ESP_OK;
-}
-esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
-  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  std::string path = get_file_path(req, inst->root_path_);
-
-  ESP_LOGD(TAG, "PUT %s", path.c_str());
-  
-  // Vérifier si le répertoire parent existe
-  std::string parent_dir = path.substr(0, path.find_last_of('/'));
-  if (!parent_dir.empty() && !is_dir(parent_dir)) {
-    ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-    // Créer les répertoires parents récursivement si nécessaire
-    // Fonction qui crée le répertoire de manière récursive
-    std::string current_path = "";
-    std::istringstream path_stream(parent_dir);
-    std::string segment;
-    
-    while (std::getline(path_stream, segment, '/')) {
-      if (segment.empty()) continue;
-      
-      if (current_path.empty()) {
-        current_path = "/";
-      }
-      
-      current_path += segment + "/";
-      
-      if (!is_dir(current_path)) {
-        ESP_LOGI(TAG, "Création du répertoire intermédiaire: %s", current_path.c_str());
-        if (mkdir(current_path.c_str(), 0755) != 0) {
-          ESP_LOGE(TAG, "Impossible de créer le répertoire: %s (errno: %d)", current_path.c_str(), errno);
-          return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
-        }
-      }
-    }
-  }
-
-  // Ouvrir le fichier avec des permissions explicites
-  FILE *file = fopen(path.c_str(), "wb");
-  if (!file) {
-    ESP_LOGE(TAG, "Impossible de créer le fichier: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
-  }
-
-  char buffer[1024];
-  int received;
-  size_t total_received = 0;
-
-  while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
-    if (fwrite(buffer, 1, received, file) != received) {
-      ESP_LOGE(TAG, "Erreur d'écriture dans le fichier: %s", path.c_str());
-      fclose(file);
-      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write to file");
-    }
-    total_received += received;
-  }
-
-  ESP_LOGD(TAG, "Fichier reçu et enregistré: %s, taille: %zu octets", path.c_str(), total_received);
-  
-  fclose(file);
-  httpd_resp_set_status(req, "201 Created");
-  httpd_resp_send(req, NULL, 0);
+  httpd_resp_send_chunk(req, NULL, 0);
   return ESP_OK;
 }
 
