@@ -214,7 +214,36 @@ void WebDAVBox3::stop_server() {
     server_ = nullptr;
   }
 }
+esp_err_t WebDAVBox3::handle_webdav_request(httpd_req_t *req) {
+    auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+    ESP_LOGD(TAG, "Requête %s sur %s", req->method, req->uri);
 
+    // Route vers les gestionnaires existants
+    if (strcmp(req->method, "GET") == 0) {
+        return inst->handle_webdav_get(req);
+    } else if (strcmp(req->method, "PUT") == 0) {
+        return inst->handle_webdav_put(req);
+    } else if (strcmp(req->method, "PROPFIND") == 0) {
+        return inst->handle_webdav_propfind(req);
+    } else if (strcmp(req->method, "DELETE") == 0) {
+        return inst->handle_webdav_delete(req);
+    } else if (strcmp(req->method, "MKCOL") == 0) {
+        return inst->handle_webdav_mkcol(req);
+    } else if (strcmp(req->method, "MOVE") == 0) {
+        return inst->handle_webdav_move(req);
+    } else if (strcmp(req->method, "COPY") == 0) {
+        return inst->handle_webdav_copy(req);
+    } else if (strcmp(req->method, "PROPPATCH") == 0) {
+        return inst->handle_webdav_proppatch(req);
+    } else if (strcmp(req->method, "LOCK") == 0) {
+        return inst->handle_webdav_lock(req);
+    } else if (strcmp(req->method, "UNLOCK") == 0) {
+        return inst->handle_webdav_unlock(req);
+    }
+
+    ESP_LOGW(TAG, "Méthode non supportée: %s", req->method);
+    return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+}
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
   // Implémentation minimale pour LOCK
   ESP_LOGD(TAG, "LOCK sur %s", req->uri);
