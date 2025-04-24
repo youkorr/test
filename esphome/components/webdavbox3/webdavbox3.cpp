@@ -77,20 +77,29 @@ void WebDAVBox3::configure_http_server() {
   }
   
   ESP_LOGI(TAG, "WebDAV server started on port %d", port_);
-    httpd_uri_t unknown_method_handler = {
-    .uri = "/*",
-    .method = HTTP_ANY,
-    .handler = [](httpd_req_t *req) {
-      auto* inst = static_cast<WebDAVBox3*>(req->user_ctx);
-      switch(req->method) {
-        case HTTP_GET: return inst->handle_webdav_get(req);
-        case HTTP_PUT: return inst->handle_webdav_put(req);
-        // ... autres méthodes connues
-        default: return inst->handle_unknown_method(req);
-      }
-    },
-    .user_ctx = this
-  };
+  
+  // Liste des méthodes que tu veux gérer
+  std::vector<http_method> methods = { HTTP_GET, HTTP_PUT, HTTP_POST, HTTP_DELETE, HTTP_HEAD, HTTP_OPTIONS };
+  
+  for (auto method : methods) {
+    httpd_uri_t handler = {
+      .uri = "/*",
+      .method = method,
+      .handler = [](httpd_req_t *req) {
+        auto* inst = static_cast<WebDAVBox3*>(req->user_ctx);
+        switch (req->method) {
+          case HTTP_GET: return inst->handle_webdav_get(req);
+          case HTTP_PUT: return inst->handle_webdav_put(req);
+          // Ajoute d'autres méthodes si nécessaire
+          default: return inst->handle_unknown_method(req);
+        }
+      },
+      .user_ctx = this
+    };
+  
+    httpd_register_uri_handler(this->server_, &handler);
+  }
+
   httpd_register_uri_handler(server_, &unknown_method_handler);
   // Generic handler for all WebDAV methods
   httpd_uri_t generic_handler = {
