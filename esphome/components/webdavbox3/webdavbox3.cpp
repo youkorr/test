@@ -231,27 +231,38 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   std::string uri = req->uri;
   ESP_LOGI(TAG, "GET request for file: %s", uri.c_str());
 
-  // Exemple de chemin de stockage, à adapter selon ta config
-  std::string file_path = "/" + uri;
+  // Convert URI to file path
+  std::string file_path = uri_to_filepath(req->uri);
 
-  // Ouvrir le fichier en mode binaire
+  // Open the file in binary mode
   FILE *file = fopen(file_path.c_str(), "rb");
   if (file != nullptr) {
-    // Déterminer la taille du fichier
-    fseek(file, 0, SEEK_END); // Aller à la fin du fichier
-    long file_size = ftell(file); // Obtenir la position actuelle (qui est la taille du fichier)
-    fseek(file, 0, SEEK_SET); // Revenir au début du fichier
+    // Determine file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
 
-    // Envoyer le fichier en réponse
-    httpd_resp_send(req, file, file_size);
+    // Set content type based on file extension (optional)
+    // httpd_resp_set_type(req, "application/octet-stream");
+
+    // Read and send file in chunks
+    char buf[1024];
+    size_t read_bytes;
+    while ((read_bytes = fread(buf, 1, sizeof(buf), file)) > 0) {
+      if (httpd_resp_send_chunk(req, buf, read_bytes) != ESP_OK) {
+        fclose(file);
+        return ESP_FAIL;
+      }
+    }
 
     fclose(file);
+    // Send empty chunk to signal the end of the response
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
   } else {
-    // Si le fichier n'existe pas, renvoyer une erreur 404
+    // If the file doesn't exist, return a 404 error
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File Not Found");
   }
-
-  return ESP_OK;
 }
 
 // WebDAV Handler Methods
