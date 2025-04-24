@@ -233,7 +233,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   ESP_LOGI(TAG, "GET request for file: %s", uri.c_str());
 
   // Exemple de chemin de stockage, à adapter selon ta config
-  std::string file_path = "/path/to/storage" + uri;  // Construire le chemin absolu du fichier
+  std::string file_path = "/" + uri;  // Construire le chemin absolu du fichier
 
   // Vérifier si le fichier existe, remplacer par ta logique d'accès aux fichiers
   FILE *file = fopen(file_path.c_str(), "rb");
