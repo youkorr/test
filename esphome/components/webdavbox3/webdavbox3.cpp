@@ -83,7 +83,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaire pour la racine avec plusieurs méthodes
   httpd_uri_t root_get_uri = {
-    .uri = "/",
+    .uri = "/%s", 
     .method = HTTP_GET,
     .handler = handle_root,
     .user_ctx = this
