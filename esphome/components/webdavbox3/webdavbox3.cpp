@@ -383,24 +383,33 @@ bool WebDAVBox3::check_auth(httpd_req_t *req) {
         return false;
     }
 
-    // Extraire les credentials
+    // Décoder les credentials Base64 avec mbedTLS
     char* encoded_credentials = auth_header + 6;
-    char credentials[256];
-    size_t credentials_len = 0;
+    size_t encoded_len = strlen(encoded_credentials);
+    size_t max_decoded_len = encoded_len * 3 / 4 + 1;
+    unsigned char* decoded = (unsigned char*)malloc(max_decoded_len);
+    size_t decoded_len = 0;
 
-    // Décodage Base64 simple (version simplifiée)
-    // Note: Pour une solution plus robuste, utilisez une librairie Base64
-    credentials_len = base64_decode((uint8_t*)encoded_credentials, strlen(encoded_credentials), 
-                                 (uint8_t*)credentials);
+    int ret = mbedtls_base64_decode(decoded, max_decoded_len, &decoded_len,
+                                  (const unsigned char*)encoded_credentials, encoded_len);
+    
+    if (ret != 0 || decoded_len == 0) {
+        free(auth_header);
+        free(decoded);
+        return false;
+    }
 
     // Vérifier username:password
-    std::string provided_credentials(credentials, credentials_len);
+    std::string provided_credentials((char*)decoded, decoded_len);
     std::string expected_credentials = instance->username_ + ":" + instance->password_;
     
     free(auth_header);
+    free(decoded);
     
     return provided_credentials == expected_credentials;
 }
+
+
 static size_t base64_decode(const uint8_t* src, size_t src_len, uint8_t* dest) {
     const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     size_t i, j;
