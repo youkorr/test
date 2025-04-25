@@ -91,7 +91,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &root_get_uri);
   
   httpd_uri_t webdav_uri = {
-    .uri = "/webdav",
+    .uri = "/",
     .method = HTTP_GET,
     .handler = handle_root,
     .user_ctx = this
@@ -117,7 +117,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaires PROPFIND (pour la racine et tous les chemins)
   httpd_uri_t propfind_root_uri = {
-    .uri = "/%s", 
+    .uri = "/", 
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
@@ -125,7 +125,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &propfind_root_uri);
   
   httpd_uri_t propfind_wildcard_uri = {
-    .uri = "/%s", 
+    .uri = "/", 
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
