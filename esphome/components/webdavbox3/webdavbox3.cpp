@@ -146,15 +146,7 @@ void WebDAVBox3::configure_http_server() {
       .handler = handle_webdav_propfind,
       .user_ctx = this
   };
-  httpd_register_uri_handler(server_, &webdav_root);
 
-  // Handler WebDAV pour tous les chemins sous /webdav/
-  httpd_uri_t webdav_all = {
-      .uri = "/webdav/*",
-      .method = HTTP_PROPFIND,
-      .handler = handle_webdav_propfind,
-      .user_ctx = this
-  };
   httpd_register_uri_handler(server_, &webdav_all);
   httpd_uri_t root_uri = {
     .uri = "/",
