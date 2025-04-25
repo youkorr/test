@@ -373,7 +373,25 @@ void WebDAVBox3::stop_server() {
     server_ = nullptr;
   }
 }
+esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
+    // Serve a simple HTML page or redirect to WebDAV interface
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    
+    if (instance->auth_enabled_ && !instance->check_auth(req)) {
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"WebDAV\"");
+        return httpd_resp_send(req, "Authentication required", HTTPD_RESP_USE_STRLEN);
+    }
 
+    // Simple HTML or redirect
+    const char* html = "<html><head><title>WebDAV Server</title></head>"
+                      "<body><h1>WebDAV Server</h1>"
+                      "<p>Connect to <a href=\"/webdav/\">/webdav/</a> to access files.</p>"
+                      "</body></html>";
+                      
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, html, strlen(html));
+}
 esp_err_t WebDAVBox3::handle_web_interface(httpd_req_t *req) {
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
