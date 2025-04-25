@@ -147,14 +147,7 @@ void WebDAVBox3::configure_http_server() {
       .user_ctx = this
   };
 
-  httpd_register_uri_handler(server_, &root_uri);
 
-  httpd_uri_t webdav = {
-    .uri = "/webdav/*",
-    .method = HTTP_PROPFIND,
-    .handler = handle_webdav_propfind,
-    .user_ctx = this
-  };
   httpd_register_uri_handler(server_, &webdav);
 
   // 1. RACINE (GET et OPTIONS)
