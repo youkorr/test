@@ -369,10 +369,19 @@ esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
 
 // Gestionnaire OPTIONS
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
-  // Set allowed methods - ajout de PROPPATCH
-  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
+  // Log the requested URI
+  ESP_LOGD(TAG, "OPTIONS request for URI: %s", req->uri);
+  
+  // Set allowed methods - be comprehensive
+  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
   httpd_resp_set_hdr(req, "DAV", "1, 2");
   httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
+  
+  // Add CORS headers if needed
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Authorization, Content-Type, Depth, Destination, Overwrite");
+  
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
