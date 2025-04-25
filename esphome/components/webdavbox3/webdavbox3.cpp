@@ -401,10 +401,23 @@ esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   httpd_resp_send(req, NULL, 0);
   return ESP_OK;
 }
+std::string normalize_path(const std::string& base_path, const std::string& rel_path) {
+  if (rel_path.empty() || rel_path == ".")
+    return base_path;
 
+  if (rel_path[0] == '/')
+    return base_path + rel_path.substr(1);
+
+  if (base_path.back() == '/')
+    return base_path + rel_path;
+
+  return base_path + "/" + rel_path;
+}
 esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  std::string path = get_file_path(req, inst->root_path_);
+
+  std::string decoded_path = get_file_path(req, "");  // chemin brut depuis URI
+  std::string path = normalize_path(inst->root_path_, decoded_path);
 
   ESP_LOGD(TAG, "PROPFIND sur %s (URI: %s)", path.c_str(), req->uri);
   
@@ -432,13 +445,10 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   // URI relatif pour le chemin actuel
   std::string uri_path = req->uri;
   if (uri_path.empty() || uri_path == "/") uri_path = "/";
-  // Assurer que les dossiers se terminent par '/'
   if (is_directory && uri_path.back() != '/') uri_path += '/';
   
-  // Ajouter les propriétés pour le chemin actuel
   response += generate_prop_xml(uri_path, is_directory, st.st_mtime, st.st_size);
   
-  // Si c'est un répertoire et que la profondeur > 0, lister son contenu
   if (is_directory && (depth_header == "1" || depth_header == "infinity")) {
     auto files = list_dir(path);
     ESP_LOGD(TAG, "Trouvé %d fichiers/dossiers dans %s", files.size(), path.c_str());
