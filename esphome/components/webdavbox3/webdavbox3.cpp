@@ -90,13 +90,13 @@ void WebDAVBox3::configure_http_server() {
   };
   httpd_register_uri_handler(server_, &root_get_uri);
   
-  //httpd_uri_t webdav_uri = {
-    //.uri = "/webdav",
-    //.method = HTTP_GET,
-    //.handler = handle_root,
-    //.user_ctx = this
-  //};
-  //httpd_register_uri_handler(server_, &webdav_uri);
+  httpd_uri_t webdav_uri = {
+    .uri = "/webdav",
+    .method = HTTP_GET,
+    .handler = handle_root,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &webdav_uri);
   
   // Gestionnaire OPTIONS pour les méthodes WebDAV - pour la racine et tous les chemins
   httpd_uri_t options_root_uri = {
@@ -117,7 +117,7 @@ void WebDAVBox3::configure_http_server() {
   
   // Gestionnaires PROPFIND (pour la racine et tous les chemins)
   httpd_uri_t propfind_root_uri = {
-    .uri = "/",
+    .uri = "/%s", 
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
@@ -125,7 +125,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &propfind_root_uri);
   
   httpd_uri_t propfind_wildcard_uri = {
-    .uri = "/*",
+    .uri = "/%s", 
     .method = HTTP_PROPFIND,
     .handler = handle_webdav_propfind,
     .user_ctx = this
@@ -183,7 +183,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &head_uri);
   
   httpd_uri_t put_root_uri = {
-    .uri = "/",
+    .uri = "/%s", 
     .method = HTTP_PUT,
     .handler = handle_webdav_put,
     .user_ctx = this
