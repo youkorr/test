@@ -96,7 +96,14 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &root_uri);
-  
+  // Add this in your configure_http_server() function
+  httpd_uri_t head_root_uri = {
+    .uri = "/",
+    .method = HTTP_HEAD,
+    .handler = handle_webdav_get,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &head_root_uri);
   // Gestionnaire OPTIONS pour les méthodes WebDAV
   httpd_uri_t options_uri = {
     .uri = "/*",
@@ -363,6 +370,15 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
 // ========== HANDLERS ==========
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
+  ESP_LOGD(TAG, "Root handler called with method: %d", req->method);
+  
+  // If it's a HEAD request, don't send body content
+  if (req->method == HTTP_HEAD) {
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+  }
+  
+  // Original response for other methods
   httpd_resp_send(req, "ESP32 WebDAV Server OK", HTTPD_RESP_USE_STRLEN);
   return ESP_OK;
 }
