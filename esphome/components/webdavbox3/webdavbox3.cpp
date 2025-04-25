@@ -134,7 +134,7 @@ void WebDAVBox3::configure_http_server() {
     httpd_uri_t web_interface = {
         .uri = "/",
         .method = HTTP_GET,
-        .handler = handle_web_interface,
+        .handler = handle_web_interface, 
         .user_ctx = this
     };
   httpd_register_uri_handler(server_, &web_interface);
