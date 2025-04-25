@@ -120,6 +120,15 @@ void WebDAVBox3::configure_http_server() {
     return;
   }
   ESP_LOGI(TAG, "WebDAV Server started on port %d", port_);
+
+  httpd_uri_t root_uri = {
+    .uri = "/",
+    .method = HTTP_GET,
+    .handler = handle_root,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &root_uri);
+
   
   // 1. RACINE (GET et OPTIONS)
   httpd_uri_t root_get_uri = {
@@ -324,82 +333,23 @@ void WebDAVBox3::stop_server() {
 }
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
-    httpd_resp_set_type(req, "text/html");
-    
-    // Récupérer l'instance depuis le contexte utilisateur
-    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
-    
-    // Vérifier l'authentification si activée
-    if (instance->auth_enabled_ && !check_auth(req)) {
-        httpd_resp_set_status(req, "401 Unauthorized");
-        httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"WebDAV\"");
-        httpd_resp_send(req, "Authentication required", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
+  httpd_resp_set_type(req, "text/html");
+  
+  // Récupérer l'instance
+  WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+  
+  // Vérifier l'authentification si nécessaire
+  if (instance->auth_enabled_ && !check_auth(req)) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"WebDAV\"");
+    return httpd_resp_send(req, "Authentication required", HTTPD_RESP_USE_STRLEN);
+  }
 
-    // Générer et envoyer l'interface web
-    std::string html = WebInterface::get_web_interface_html(instance);
-    httpd_resp_send(req, html.c_str(), html.length());
-    return ESP_OK;
+  // Envoyer l'interface
+  std::string html = get_web_interface_html(instance);
+  return httpd_resp_send(req, html.c_str(), html.length());
 }
 
-bool WebDAVBox3::check_auth(httpd_req_t *req) {
-    // Récupérer l'instance depuis le contexte
-    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
-    
-    // Si l'authentification est désactivée
-    if (!instance->auth_enabled_) {
-        return true;
-    }
-
-    // Vérifier l'en-tête Authorization
-    size_t auth_len = httpd_req_get_hdr_value_len(req, "Authorization");
-    if (auth_len == 0) {
-        return false;
-    }
-
-    // Allouer un buffer pour l'en-tête
-    char* auth_header = (char*)malloc(auth_len + 1);
-    if (auth_header == nullptr) {
-        return false;
-    }
-
-    // Récupérer l'en-tête
-    if (httpd_req_get_hdr_value_str(req, "Authorization", auth_header, auth_len + 1) != ESP_OK) {
-        free(auth_header);
-        return false;
-    }
-
-    // Vérifier le type Basic Auth
-    if (strncmp(auth_header, "Basic ", 6) != 0) {
-        free(auth_header);
-        return false;
-    }
-
-    // Décoder les credentials Base64
-    char* credentials = auth_header + 6;
-    size_t credentials_len = strlen(credentials);
-    size_t max_decoded_len = credentials_len * 3 / 4 + 1;
-    unsigned char* decoded = (unsigned char*)malloc(max_decoded_len);
-    size_t decoded_len = 0;
-
-    // Utilisation de mbedTLS pour le décodage Base64
-    if (mbedtls_base64_decode(decoded, max_decoded_len, &decoded_len, 
-                             (const unsigned char*)credentials, credentials_len) != 0) {
-        free(auth_header);
-        free(decoded);
-        return false;
-    }
-
-    // Vérifier username:password
-    std::string provided_credentials((char*)decoded, decoded_len);
-    std::string expected_credentials = instance->username_ + ":" + instance->password_;
-    
-    free(auth_header);
-    free(decoded);
-    
-    return provided_credentials == expected_credentials;
-}
 
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   ESP_LOGD(TAG, "OPTIONS request for path: %s", req->uri);
