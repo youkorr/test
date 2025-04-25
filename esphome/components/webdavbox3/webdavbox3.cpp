@@ -100,7 +100,7 @@ void WebDAVBox3::configure_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = port_;
   config.ctrl_port = port_ + 1000;
-  config.max_uri_handlers = 16;
+  config.max_uri_handlers = 16;  // Augmenter si nécessaire
   config.lru_purge_enable = true;
   config.recv_wait_timeout = 30;
   config.send_wait_timeout = 30;
@@ -118,25 +118,24 @@ void WebDAVBox3::configure_http_server() {
   }
   ESP_LOGI(TAG, "WebDAV Server started on port %d", port_);
   
-  // Register URI handlers
-  httpd_uri_t root_uri = {
+  // 1. RACINE (GET et OPTIONS)
+  httpd_uri_t root_get_uri = {
     .uri = "/",
     .method = HTTP_GET,
     .handler = handle_root,
     .user_ctx = this
   };
-  httpd_register_uri_handler(server_, &root_uri);
+  httpd_register_uri_handler(server_, &root_get_uri);
   
-  // Gestionnaire OPTIONS pour les méthodes WebDAV
-  httpd_uri_t options_uri = {
-    .uri = "/*",
+  httpd_uri_t root_options_uri = {
+    .uri = "/",
     .method = HTTP_OPTIONS,
     .handler = handle_webdav_options,
     .user_ctx = this
   };
-  httpd_register_uri_handler(server_, &options_uri);
+  httpd_register_uri_handler(server_, &root_options_uri);
   
-  // Gestionnaires PROPFIND (pour la racine et tous les chemins)
+  // 2. PROPFIND (pour la racine spécifiquement)
   httpd_uri_t propfind_root_uri = {
     .uri = "/",
     .method = HTTP_PROPFIND,
@@ -144,6 +143,80 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &propfind_root_uri);
+  
+  // 3. Autres méthodes pour la racine
+  httpd_uri_t mkcol_root_uri = {
+    .uri = "/",
+    .method = HTTP_MKCOL,
+    .handler = handle_webdav_mkcol,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &mkcol_root_uri);
+  
+  httpd_uri_t put_root_uri = {
+    .uri = "/",
+    .method = HTTP_PUT,
+    .handler = handle_webdav_put,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &put_root_uri);
+  
+  httpd_uri_t delete_root_uri = {
+    .uri = "/",
+    .method = HTTP_DELETE,
+    .handler = handle_webdav_delete,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &delete_root_uri);
+  
+  httpd_uri_t proppatch_root_uri = {
+    .uri = "/",
+    .method = HTTP_PROPPATCH,
+    .handler = handle_webdav_proppatch,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &proppatch_root_uri);
+  
+  httpd_uri_t lock_root_uri = {
+    .uri = "/",
+    .method = HTTP_LOCK,
+    .handler = handle_webdav_lock,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &lock_root_uri);
+  
+  httpd_uri_t unlock_root_uri = {
+    .uri = "/",
+    .method = HTTP_UNLOCK,
+    .handler = handle_webdav_unlock,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &unlock_root_uri);
+  
+  httpd_uri_t copy_root_uri = {
+    .uri = "/",
+    .method = HTTP_COPY,
+    .handler = handle_webdav_copy,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &copy_root_uri);
+  
+  httpd_uri_t move_root_uri = {
+    .uri = "/",
+    .method = HTTP_MOVE,
+    .handler = handle_webdav_move,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &move_root_uri);
+  
+  // 4. AUTRES CHEMINS (pour uri = /*)
+  httpd_uri_t options_uri = {
+    .uri = "/*",
+    .method = HTTP_OPTIONS,
+    .handler = handle_webdav_options,
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &options_uri);
   
   httpd_uri_t propfind_uri = {
     .uri = "/*",
@@ -160,6 +233,14 @@ void WebDAVBox3::configure_http_server() {
     .user_ctx = this
   };
   httpd_register_uri_handler(server_, &get_uri);
+  
+  httpd_uri_t head_uri = {
+    .uri = "/*",
+    .method = HTTP_HEAD,
+    .handler = handle_webdav_get,  // Souvent HEAD utilise le même handler que GET
+    .user_ctx = this
+  };
+  httpd_register_uri_handler(server_, &head_uri);
   
   httpd_uri_t put_uri = {
     .uri = "/*",
@@ -246,9 +327,19 @@ esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
 }
 
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
+  ESP_LOGD(TAG, "OPTIONS request for path: %s", req->uri);
+  
+  // En-têtes importants pour WebDAV
   httpd_resp_set_hdr(req, "DAV", "1,2");
-  httpd_resp_set_hdr(req, "Allow", "OPTIONS,PROPFIND,GET,HEAD,PUT,DELETE,COPY,MOVE,MKCOL,PROPPATCH,LOCK,UNLOCK");
+  httpd_resp_set_hdr(req, "Allow", "OPTIONS,PROPFIND,GET,HEAD,PUT,DELETE,COPY,MOVE,MKCOL,LOCK,UNLOCK,PROPPATCH");
   httpd_resp_set_hdr(req, "Content-Length", "0");
+  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV"); // Pour le support de Windows
+  
+  // Pour le support CORS si nécessaire
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "OPTIONS,PROPFIND,GET,HEAD,PUT,DELETE,COPY,MOVE,MKCOL,LOCK,UNLOCK,PROPPATCH");
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Depth,Destination,Overwrite,Content-Type,Lock-Token");
+  
   httpd_resp_send(req, nullptr, 0);
   return ESP_OK;
 }
