@@ -322,10 +322,24 @@ void WebDAVBox3::stop_server() {
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
-    std::string html = WebInterface::get_web_interface_html(this);
+    
+    // Récupérer l'instance depuis le contexte utilisateur
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    
+    // Vérifier l'authentification si activée
+    if (instance->auth_enabled_ && !check_auth(req)) {
+        httpd_resp_set_status(req, "401 Unauthorized");
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"WebDAV\"");
+        httpd_resp_send(req, "Authentication required", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    // Générer et envoyer l'interface web
+    std::string html = WebInterface::get_web_interface_html(instance);
     httpd_resp_send(req, html.c_str(), html.length());
     return ESP_OK;
 }
+
 
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   ESP_LOGD(TAG, "OPTIONS request for path: %s", req->uri);
