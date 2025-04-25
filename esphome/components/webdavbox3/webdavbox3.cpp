@@ -81,7 +81,7 @@ void WebDAVBox3::configure_http_server() {
   }
   ESP_LOGI(TAG, "Serveur WebDAV démarré sur le port %d", port_);
   
-   Gestionnaire pour la racine avec plusieurs méthodes
+   //Gestionnaire pour la racine avec plusieurs méthodes
    httpd_uri_t root_get_uri = {
     .uri = "/%s", 
     .method = HTTP_GET,
