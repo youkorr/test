@@ -372,8 +372,57 @@ bool WebDAVBox3::check_auth(httpd_req_t *req) {
     }
 
     // Récupérer l'en-tête
-    if (httpd_req_get_hdr_value_str(req
+    if (httpd_req_get_hdr_value_str(req, "Authorization", auth_header, auth_len + 1) != ESP_OK) {
+        free(auth_header);
+        return false;
+    }
+
+    // Vérifier le type Basic Auth
+    if (strncmp(auth_header, "Basic ", 6) != 0) {
+        free(auth_header);
+        return false;
+    }
+
+    // Extraire les credentials
+    char* encoded_credentials = auth_header + 6;
+    char credentials[256];
+    size_t credentials_len = 0;
+
+    // Décodage Base64 simple (version simplifiée)
+    // Note: Pour une solution plus robuste, utilisez une librairie Base64
+    credentials_len = base64_decode((uint8_t*)encoded_credentials, strlen(encoded_credentials), 
+                                 (uint8_t*)credentials);
+
+    // Vérifier username:password
+    std::string provided_credentials(credentials, credentials_len);
+    std::string expected_credentials = instance->username_ + ":" + instance->password_;
+    
+    free(auth_header);
+    
+    return provided_credentials == expected_credentials;
 }
+static size_t base64_decode(const uint8_t* src, size_t src_len, uint8_t* dest) {
+    const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i, j;
+    uint32_t a = 0;
+    uint32_t b = 0;
+    
+    for (i = j = 0; i < src_len; i += 4) {
+        a = 0;
+        for (size_t k = 0; k < 4; k++) {
+            if (i + k >= src_len) break;
+            const char* p = strchr(b64, src[i + k]);
+            a = (a << 6) | (p ? p - b64 : 0);
+        }
+        
+        dest[j++] = (a >> 16) & 0xFF;
+        if (src[i + 2] != '=') dest[j++] = (a >> 8) & 0xFF;
+        if (src[i + 3] != '=') dest[j++] = a & 0xFF;
+    }
+    
+    return j;
+}
+
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   ESP_LOGD(TAG, "OPTIONS request for path: %s", req->uri);
   
