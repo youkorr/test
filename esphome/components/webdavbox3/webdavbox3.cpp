@@ -350,7 +350,30 @@ esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   return httpd_resp_send(req, html.c_str(), html.length());
 }
 
+bool WebDAVBox3::check_auth(httpd_req_t *req) {
+    // Récupérer l'instance depuis le contexte
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    
+    // Si l'authentification est désactivée
+    if (!instance->auth_enabled_) {
+        return true;
+    }
 
+    // Vérifier l'en-tête Authorization
+    size_t auth_len = httpd_req_get_hdr_value_len(req, "Authorization");
+    if (auth_len == 0) {
+        return false;
+    }
+
+    // Allouer un buffer pour l'en-tête
+    char* auth_header = (char*)malloc(auth_len + 1);
+    if (auth_header == nullptr) {
+        return false;
+    }
+
+    // Récupérer l'en-tête
+    if (httpd_req_get_hdr_value_str(req
+}
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   ESP_LOGD(TAG, "OPTIONS request for path: %s", req->uri);
   
