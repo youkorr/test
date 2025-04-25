@@ -1,4 +1,6 @@
 #include "webdavbox3.h"
+#include <esp_http_client.h>
+#include <string.h>
 #include "esphome/core/log.h"
 #include <sys/stat.h>
 #include <dirent.h>
@@ -340,6 +342,65 @@ esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
     return ESP_OK;
 }
 
+bool WebDAVBox3::check_auth(httpd_req_t *req) {
+    // Récupérer l'instance depuis le contexte
+    WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
+    
+    // Si l'authentification est désactivée, retourner true
+    if (!instance->auth_enabled_) {
+        return true;
+    }
+
+    // Vérifier l'en-tête Authorization
+    size_t auth_len = httpd_req_get_hdr_value_len(req, "Authorization");
+    if (auth_len == 0) {
+        return false;
+    }
+
+    // Allouer un buffer pour l'en-tête
+    char* auth_header = (char*)malloc(auth_len + 1);
+    if (auth_header == nullptr) {
+        return false;
+    }
+
+    // Récupérer l'en-tête
+    if (httpd_req_get_hdr_value_str(req, "Authorization", auth_header, auth_len + 1) != ESP_OK) {
+        free(auth_header);
+        return false;
+    }
+
+    // Vérifier le type d'authentification (Basic)
+    if (strncmp(auth_header, "Basic ", 6) != 0) {
+        free(auth_header);
+        return false;
+    }
+
+    // Décoder les credentials
+    char* credentials = auth_header + 6;
+    char* decoded = (char*)malloc(auth_len);
+    size_t decoded_len = 0;
+    
+    if (esp_http_client_global_init() != ESP_OK) {
+        free(auth_header);
+        return false;
+    }
+    
+    decoded_len = esp_http_client_decode_base64(credentials, decoded);
+    if (decoded_len == 0) {
+        free(auth_header);
+        free(decoded);
+        return false;
+    }
+
+    // Vérifier username:password
+    std::string provided_credentials(decoded, decoded_len);
+    std::string expected_credentials = instance->username_ + ":" + instance->password_;
+    
+    free(auth_header);
+    free(decoded);
+    
+    return provided_credentials == expected_credentials;
+}
 
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
   ESP_LOGD(TAG, "OPTIONS request for path: %s", req->uri);
