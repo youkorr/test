@@ -321,7 +321,8 @@ void WebDAVBox3::stop_server() {
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
-  httpd_resp_send(req, "<html><body><h1>WebDAV Server</h1><p>Server is running.</p></body></html>", HTTPD_RESP_USE_STRLEN);
+  std::string html = WebInterface::get_web_interface_html(this);
+  httpd_resp_send(req, html.c_str(), html.length());
   return ESP_OK;
 }
 
