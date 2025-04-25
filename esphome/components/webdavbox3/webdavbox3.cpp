@@ -71,29 +71,40 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
-  struct stat st;
-  if (stat(root_path_.c_str(), &st) != 0) {
-    ESP_LOGI(TAG, "Creating root directory: %s", root_path_.c_str());
-    if (mkdir(root_path_.c_str(), 0755) != 0) {
-      ESP_LOGE(TAG, "Failed to create root directory: %s (errno: %d)", root_path_.c_str(), errno);
+    struct stat st;
+    
+    // Vérification du point de montage
+    if (stat(root_path_.c_str(), &st) != 0) {
+        ESP_LOGI(TAG, "Creating root directory: %s", root_path_.c_str());
+        if (mkdir(root_path_.c_str(), 0755) != 0) {
+            ESP_LOGE(TAG, "Failed to create root directory: %s (errno: %d)", root_path_.c_str(), errno);
+            return;
+        }
+    } 
+    else if (!S_ISDIR(st.st_mode)) {
+        ESP_LOGE(TAG, "Root path is not a directory: %s", root_path_.c_str());
+        return;
     }
-  } else if (!S_ISDIR(st.st_mode)) {
-    ESP_LOGE(TAG, "Root path is not a directory: %s", root_path_.c_str());
-    return;
-  }
 
- if (access(root_path_.c_str(), R_OK | W_OK) != 0) {
-    ESP_LOGE(TAG, "Insufficient permissions on root directory: %s (errno: %d)", root_path_.c_str(), errno);
-    // Instead of chmod, try recreating the directory with proper permissions
-    if (rmdir(root_path_.c_str()) == 0) {
-        mkdir(root_path_.c_str(), 0755);
+    // Vérification des permissions
+    if (access(root_path_.c_str(), R_OK | W_OK | X_OK) != 0) {
+        ESP_LOGE(TAG, "Insufficient permissions on root directory: %s (errno: %d)", root_path_.c_str(), errno);
+        if (rmdir(root_path_.c_str()) == 0) {
+            if (mkdir(root_path_.c_str(), 0755) != 0) {
+                ESP_LOGE(TAG, "Failed to recreate directory: %s", root_path_.c_str());
+                return;
+            }
+        } else {
+            ESP_LOGE(TAG, "Failed to remove directory: %s", root_path_.c_str());
+            return;
+        }
     }
+
+    ESP_LOGI(TAG, "Successfully initialized SD mount at %s", root_path_.c_str());
+    this->configure_http_server();
+    this->start_server();
 }
-  
-  ESP_LOGI(TAG, "Using SD mount at %s", root_path_.c_str());
-  this->configure_http_server();
-  this->start_server();
-}
+
 
 void WebDAVBox3::loop() {
   // Nothing to do in loop
@@ -144,7 +155,7 @@ void WebDAVBox3::configure_http_server() {
       .handler = handle_webdav_propfind,
       .user_ctx = this
   };
-  httpd_register_uri_handler(server_, &webdav_all)
+  httpd_register_uri_handler(server_, &webdav_all);
   httpd_uri_t root_uri = {
     .uri = "/",
     .method = HTTP_GET,
