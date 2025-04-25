@@ -369,14 +369,15 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
   std::string uri = req->uri;
   std::string path = root_path;
   
+  // Journalisation de l'URI d'origine pour le débogage
+  ESP_LOGD(TAG, "URI originale avant décodage: %s", uri.c_str());
+  
   // Décoder l'URL
   uri = url_decode(uri);
-  
-  // Journalisation de l'URI d'origine pour le débogage
-  ESP_LOGD(TAG, "URI originale: %s", uri.c_str());
+  ESP_LOGD(TAG, "URI décodée: %s", uri.c_str());
   
   // Si la requête est pour la racine du serveur, retourner le chemin racine
-  if (uri == "/" || uri == "/webdav") {
+  if (uri == "/" || uri == "/webdav" || uri == "/webdav/") {
     ESP_LOGD(TAG, "Accès à la racine, retournant chemin racine: %s", path.c_str());
     return path;
   }
@@ -401,9 +402,14 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
     uri = uri.substr(7);  // "webdav/" a 7 caractères
   }
   
+  // Normaliser les chemins (supprimer les barres obliques doubles)
+  while (uri.find("//") != std::string::npos) {
+    uri.replace(uri.find("//"), 2, "/");
+  }
+  
   path += uri;
   
-  ESP_LOGD(TAG, "URI mappée: %s -> chemin: %s", req->uri, path.c_str());
+  ESP_LOGD(TAG, "URI mappée: %s -> chemin final: %s", req->uri, path.c_str());
   return path;
 }
 
@@ -436,8 +442,26 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   char time_buf[30];
   strftime(time_buf, sizeof(time_buf), "%Y-%m-%dT%H:%M:%SZ", gmtime(&modified));
   
+  // Normalisation de l'URL pour assurer la cohérence
+  std::string normalized_href = href;
+  
+  // S'assurer que l'URL commence par "/"
+  if (normalized_href.empty() || normalized_href[0] != '/') {
+    normalized_href = "/" + normalized_href;
+  }
+  
+  // Normaliser les chemins (supprimer les barres obliques doubles)
+  while (normalized_href.find("//") != std::string::npos) {
+    normalized_href.replace(normalized_href.find("//"), 2, "/");
+  }
+  
+  // Pour les répertoires, s'assurer qu'ils se terminent par "/"
+  if (is_directory && normalized_href.back() != '/') {
+    normalized_href += '/';
+  }
+  
   std::string xml = "  <D:response>\n";
-  xml += "    <D:href>" + href + "</D:href>\n";
+  xml += "    <D:href>" + normalized_href + "</D:href>\n";
   xml += "    <D:propstat>\n";
   xml += "      <D:prop>\n";
   xml += "        <D:resourcetype>";
@@ -456,7 +480,6 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
   
   return xml;
 }
-
 // ========== HANDLERS ==========
 
 esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
@@ -497,7 +520,31 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   struct stat st;
   if (stat(path.c_str(), &st) != 0) {
     ESP_LOGE(TAG, "Chemin non trouvé: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+    
+    // Tentative de correction du chemin - comme dans handle_webdav_get
+    std::string alt_path = path;
+    std::string webdav_prefix = "webdav/";
+    
+    if (path.find(webdav_prefix) != std::string::npos) {
+      alt_path.replace(path.find(webdav_prefix), webdav_prefix.length(), "");
+    } else {
+      size_t root_length = inst->root_path_.length();
+      if (path.length() > root_length) {
+        std::string rel_path = path.substr(root_length);
+        if (rel_path[0] == '/') rel_path = rel_path.substr(1);
+        alt_path = inst->root_path_;
+        if (alt_path.back() != '/') alt_path += '/';
+        alt_path += webdav_prefix + rel_path;
+      }
+    }
+    
+    ESP_LOGD(TAG, "PROPFIND: Tentative avec chemin alternatif: %s", alt_path.c_str());
+    if (stat(alt_path.c_str(), &st) == 0) {
+      path = alt_path;
+      ESP_LOGI(TAG, "PROPFIND: Correction de chemin réussie: %s", path.c_str());
+    } else {
+      return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not Found");
+    }
   }
   
   bool is_directory = S_ISDIR(st.st_mode);
@@ -514,9 +561,9 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
   std::string response = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                          "<D:multistatus xmlns:D=\"DAV:\">\n";
   
-  // URI relatif pour le chemin actuel
+  // URI relatif pour le chemin actuel - utiliser l'URI d'origine pour plus de cohérence
   std::string uri_path = req->uri;
-  if (uri_path.empty() || uri_path == "/") uri_path = "/";
+  
   // Assurer que les dossiers se terminent par '/'
   if (is_directory && uri_path.back() != '/') uri_path += '/';
   
@@ -536,10 +583,17 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
       struct stat file_stat;
       if (stat(file_path.c_str(), &file_stat) == 0) {
         bool is_file_dir = S_ISDIR(file_stat.st_mode);
+        
+        // Construction cohérente du href pour chaque fichier/dossier
         std::string href = uri_path;
         if (href.back() != '/') href += '/';
         href += file_name;
         if (is_file_dir) href += '/';
+        
+        // Normaliser l'URL (supprimer les doubles barres obliques)
+        while (href.find("//") != std::string::npos) {
+          href.replace(href.find("//"), 2, "/");
+        }
         
         ESP_LOGD(TAG, "Ajout de %s à la réponse PROPFIND (est_dir: %d)", href.c_str(), is_file_dir);
         response += generate_prop_xml(href, is_file_dir, file_stat.st_mtime, file_stat.st_size);
@@ -572,7 +626,33 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   struct stat st;
   if (stat(path.c_str(), &st) != 0) {
     ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    
+    // Tentative de correction du chemin - essayer avec et sans le préfixe webdav
+    std::string alt_path = path;
+    std::string webdav_prefix = "webdav/";
+    
+    if (path.find(webdav_prefix) != std::string::npos) {
+      // Si le chemin contient déjà "webdav/", essayons sans
+      alt_path.replace(path.find(webdav_prefix), webdav_prefix.length(), "");
+    } else {
+      // Sinon, essayons d'ajouter "webdav/" au chemin relatif
+      size_t root_length = inst->root_path_.length();
+      if (path.length() > root_length) {
+        std::string rel_path = path.substr(root_length);
+        if (rel_path[0] == '/') rel_path = rel_path.substr(1);
+        alt_path = inst->root_path_;
+        if (alt_path.back() != '/') alt_path += '/';
+        alt_path += webdav_prefix + rel_path;
+      }
+    }
+    
+    ESP_LOGD(TAG, "Tentative avec chemin alternatif: %s", alt_path.c_str());
+    if (stat(alt_path.c_str(), &st) == 0) {
+      path = alt_path;
+      ESP_LOGI(TAG, "Correction de chemin réussie: %s", path.c_str());
+    } else {
+      return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    }
   }
   
   FILE *file = fopen(path.c_str(), "rb");
