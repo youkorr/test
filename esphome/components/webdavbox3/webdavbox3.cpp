@@ -1,5 +1,6 @@
 #include "webdavbox3.h"
 #include <esp_http_client.h>
+#include "mbedtls/base64.h" 
 #include <string.h>
 #include "esphome/core/log.h"
 #include <sys/stat.h>
@@ -346,7 +347,7 @@ bool WebDAVBox3::check_auth(httpd_req_t *req) {
     // Récupérer l'instance depuis le contexte
     WebDAVBox3* instance = static_cast<WebDAVBox3*>(req->user_ctx);
     
-    // Si l'authentification est désactivée, retourner true
+    // Si l'authentification est désactivée
     if (!instance->auth_enabled_) {
         return true;
     }
@@ -369,31 +370,29 @@ bool WebDAVBox3::check_auth(httpd_req_t *req) {
         return false;
     }
 
-    // Vérifier le type d'authentification (Basic)
+    // Vérifier le type Basic Auth
     if (strncmp(auth_header, "Basic ", 6) != 0) {
         free(auth_header);
         return false;
     }
 
-    // Décoder les credentials
+    // Décoder les credentials Base64
     char* credentials = auth_header + 6;
-    char* decoded = (char*)malloc(auth_len);
+    size_t credentials_len = strlen(credentials);
+    size_t max_decoded_len = credentials_len * 3 / 4 + 1;
+    unsigned char* decoded = (unsigned char*)malloc(max_decoded_len);
     size_t decoded_len = 0;
-    
-    if (esp_http_client_global_init() != ESP_OK) {
-        free(auth_header);
-        return false;
-    }
-    
-    decoded_len = esp_http_client_decode_base64(credentials, decoded);
-    if (decoded_len == 0) {
+
+    // Utilisation de mbedTLS pour le décodage Base64
+    if (mbedtls_base64_decode(decoded, max_decoded_len, &decoded_len, 
+                             (const unsigned char*)credentials, credentials_len) != 0) {
         free(auth_header);
         free(decoded);
         return false;
     }
 
     // Vérifier username:password
-    std::string provided_credentials(decoded, decoded_len);
+    std::string provided_credentials((char*)decoded, decoded_len);
     std::string expected_credentials = instance->username_ + ":" + instance->password_;
     
     free(auth_header);
