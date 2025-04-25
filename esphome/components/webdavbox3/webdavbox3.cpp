@@ -220,7 +220,13 @@ void WebDAVBox3::stop_server() {
     server_ = nullptr;
   }
 }
-
+esp_err_t WebDAVBox3::handle_post(httpd_req_t *req) {
+    // Implementation for handling POST requests
+    // For simple implementation, you could just return 200 OK
+    httpd_resp_set_status(req, "200 OK");
+    httpd_resp_send(req, "POST operation successful", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
 esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
   // Implémentation minimale pour LOCK
   ESP_LOGD(TAG, "LOCK sur %s", req->uri);
