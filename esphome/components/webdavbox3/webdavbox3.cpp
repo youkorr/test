@@ -38,19 +38,27 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
-  // Vérifier si le répertoire racine existe
+  // Mount SD card if not already mounted
+  if (!sdcard_mounted_) {
+    if (!mount_sd_card()) {
+      ESP_LOGE(TAG, "Failed to mount SD card. WebDAV will not function properly.");
+      return;
+    }
+  }
+
+  // Check if root directory exists
   struct stat st;
   if (stat(root_path_.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Le répertoire racine n'existe pas: %s (errno: %d)", root_path_.c_str(), errno);
-    // Tentative de création du répertoire racine
+    ESP_LOGE(TAG, "Root directory doesn't exist: %s (errno: %d)", root_path_.c_str(), errno);
+    // Try to create root directory
     if (mkdir(root_path_.c_str(), 0755) != 0) {
-      ESP_LOGE(TAG, "Impossible de créer le répertoire racine: %s (errno: %d)", root_path_.c_str(), errno);
+      ESP_LOGE(TAG, "Cannot create root directory: %s (errno: %d)", root_path_.c_str(), errno);
     }
   } else if (!S_ISDIR(st.st_mode)) {
-    ESP_LOGE(TAG, "Le chemin racine n'est pas un répertoire: %s", root_path_.c_str());
+    ESP_LOGE(TAG, "Root path is not a directory: %s", root_path_.c_str());
   }
   
-  ESP_LOGI(TAG, "Utilisation du montage SD existant à %s", root_path_.c_str());
+  ESP_LOGI(TAG, "Using SD card mount at %s", root_path_.c_str());
   this->configure_http_server();
   this->start_server();
 }
