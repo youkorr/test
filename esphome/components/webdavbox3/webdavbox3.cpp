@@ -266,36 +266,7 @@ esp_err_t WebDAVBox3::handle_webdav_lock(httpd_req_t *req) {
   httpd_resp_send(req, response.c_str(), response.length());
   return ESP_OK;
 }
-bool WebDAVBox3::mount_sd_card() {
-  // Initialize SD card
-  esp_err_t ret = ESP_FAIL;
-  sdmmc_card_t *card = nullptr;
-  
-  sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-  sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-  
-  esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-    .format_if_mount_failed = false,
-    .max_files = 5,
-    .allocation_unit_size = 16 * 1024
-  };
-  
-  ESP_LOGI(TAG, "Mounting SD card...");
-  ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
-  
-  if (ret != ESP_OK) {
-    if (ret == ESP_FAIL) {
-      ESP_LOGE(TAG, "Failed to mount filesystem. Check SD card.");
-    } else {
-      ESP_LOGE(TAG, "Failed to initialize SD card (%s)", esp_err_to_name(ret));
-    }
-    return false;
-  }
-  
-  ESP_LOGI(TAG, "SD card mounted at %s", root_path_.c_str());
-  sdcard_mounted_ = true;
-  return true;
-}
+
 esp_err_t WebDAVBox3::handle_webdav_unlock(httpd_req_t *req) {
   // Implémentation minimale pour UNLOCK
   ESP_LOGD(TAG, "UNLOCK sur %s", req->uri);
