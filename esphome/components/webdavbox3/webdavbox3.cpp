@@ -12,7 +12,7 @@
 #include <chrono>
 #include <sys/stat.h>
 
-#define HTTPD_416_REQUESTED_RANGE_NOT_SATISFIABLE 416
+
 
 namespace esphome {
 namespace webdavbox3 {
@@ -679,7 +679,11 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     // Validate range
     if (range_start >= file_size) {
       fclose(file);
-      return httpd_resp_send_err(req, 416, "Range Not Satisfiable");
+      // Fix for HTTP 416 status code (Range Not Satisfiable)
+      httpd_resp_set_status(req, "416 Range Not Satisfiable");
+      httpd_resp_set_type(req, "text/plain");
+      httpd_resp_send(req, "Range Not Satisfiable", HTTPD_RESP_USE_STRLEN);
+      return ESP_OK;
     }
     
     if (range_end >= file_size) {
