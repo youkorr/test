@@ -12,6 +12,8 @@
 #include <chrono>
 #include <sys/stat.h>
 
+#define HTTPD_416_REQUESTED_RANGE_NOT_SATISFIABLE 416
+
 namespace esphome {
 namespace webdavbox3 {
 
