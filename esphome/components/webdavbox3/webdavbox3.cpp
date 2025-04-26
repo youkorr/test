@@ -40,22 +40,19 @@ std::string url_decode(const std::string &src) {
 }
 
 void WebDAVBox3::setup() {
-  // Vérifier si la carte SD est déjà montée par un autre composant
-  struct stat st;
-  if (stat("/sdcard", &st) == 0) {
-    // La carte SD semble déjà être montée
-    ESP_LOGI(TAG, "SD card already mounted by another component, using existing mount");
-    sdcard_mounted_ = true;
-  }
-  // Si ce n'est pas monté et que ce composant doit le faire
-  else if (!sdcard_mounted_) {
-    if (!mount_sd_card()) {
-      ESP_LOGE(TAG, "Failed to mount SD card. WebDAV will not function properly.");
-      return;
-    }
-  }
+  // Ne pas essayer de monter la carte SD puisqu'elle est déjà montée par un autre composant
+  // if (!sdcard_mounted_) {
+  //   if (!mount_sd_card()) {
+  //     ESP_LOGE(TAG, "Failed to mount SD card. WebDAV will not function properly.");
+  //     return;
+  //   }
+  // }
+  
+  // Supposons que la carte SD est déjà montée
+  sdcard_mounted_ = true;
 
   // Vérifier si le répertoire racine existe
+  struct stat st;
   if (stat(root_path_.c_str(), &st) != 0) {
     ESP_LOGE(TAG, "Root directory doesn't exist: %s (errno: %d)", root_path_.c_str(), errno);
     // Essayer de créer le répertoire racine
