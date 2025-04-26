@@ -677,7 +677,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     // Validate range
     if (range_start >= file_size) {
       fclose(file);
-      return httpd_resp_send_err(req, HTTPD_416_REQUESTED_RANGE_NOT_SATISFIABLE, "Range Not Satisfiable");
+      return httpd_resp_send_err(req, 416, "Range Not Satisfiable");
     }
     
     if (range_end >= file_size) {
