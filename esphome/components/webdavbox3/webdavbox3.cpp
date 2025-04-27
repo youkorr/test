@@ -108,7 +108,7 @@ void WebDAVBox3::configure_http_server() {
     .method = HTTP_GET,
     .handler = handle_root,
     .user_ctx = this
-  };
+  }
   //httpd_register_uri_handler(server_, &root_uri);
   // Add this in your configure_http_server() function
   //httpd_uri_t head_root_uri = {
