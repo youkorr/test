@@ -49,6 +49,8 @@ class WebDAVBox3 : public Component {
   
   // WebDAV path conversion
   std::string uri_to_filepath(const char* uri);
+
+  esp_err_t handle_webdav_get_small_file(httpd_req_t *req, const std::string &path, size_t file_size);
   
   // WebDAV handler methods
   static esp_err_t handle_root(httpd_req_t *req);
