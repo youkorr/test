@@ -103,15 +103,29 @@ void WebDAVBox3::loop() {
 }
 
 void WebDAVBox3::configure_http_server() {
-  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.server_port = port_;
-  config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
-  config.max_uri_handlers = 16;     // Augmentation du nombre maximum de gestionnaires URI
-  config.lru_purge_enable = true;   // Active le nettoyage LRU pour éviter les problèmes de mémoire
-  config.recv_wait_timeout = 60;    // Augmente le timeout pour les fichiers volumineux
-  config.send_wait_timeout = 60;    // Augmente le timeout pour les fichiers volumineux
-  config.uri_match_fn = httpd_uri_match_wildcard; // ⚠️ IMPORTANT: Active la correspondance avec caractères génériques
-  config.stack_size = 8192;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    
+    // Configuration de base
+    config.server_port = port_;
+    config.ctrl_port = port_ + 1000;
+    config.max_uri_handlers = 16;
+    
+    // Paramètres de performance
+    config.stack_size = 8192;
+    config.core_id = 0;  // Fixer sur le premier cœur
+    config.task_priority = tskIDLE_PRIORITY + 5;  // Priorité plus élevée
+    
+    // Paramètres de délai et taille
+    config.lru_purge_enable = true;
+    config.recv_wait_timeout = 60;  // 60 secondes d'attente max
+    config.send_wait_timeout = 60;  // 60 secondes d'attente max
+    
+    // Pour les grandes requêtes
+    config.max_resp_headers = 16;   // Plus d'en-têtes
+    config.max_open_sockets = 7;    // Plus de sockets ouverts
+    
+    // Obligatoire pour les URL avec wildcards
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
  
   // Vérifier que le serveur n'est pas déjà démarré
