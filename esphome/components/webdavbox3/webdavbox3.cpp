@@ -644,13 +644,13 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
         int opt = 1;
         setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
         
-        // Augmenter considérablement la taille du tampon d'envoi
-        int send_buf = 64 * 1024;  // 64KB au lieu de 32KB
+        // Augmenter considérablement la taille du tampon d'envoi pour les gros fichiers
+        int send_buf = 128 * 1024;  // 128KB pour maximiser le débit
         setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &send_buf, sizeof(send_buf));
         
-        // Timeouts plus longs
+        // Timeouts beaucoup plus longs pour les gros fichiers
         struct timeval timeout;
-        timeout.tv_sec = 60;  // 60 secondes au lieu de 30
+        timeout.tv_sec = 300;  // 5 minutes pour les très gros fichiers
         timeout.tv_usec = 0;
         setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         
@@ -690,9 +690,13 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     // Ne pas utiliser la stratégie de chargement complet du fichier pour les fichiers volumineux
     // car cela peut causer des problèmes de mémoire sur l'ESP32
     
-    // Utiliser une seule stratégie d'envoi par chunks optimisée
-    // CHUNK_SIZE est calculé en fonction de la taille du fichier
-    const size_t CHUNK_SIZE = (st.st_size > 256 * 1024) ? 4096 : 8192;  // 4KB pour les gros fichiers, 8KB pour les plus petits
+    // Stratégie optimisée pour les fichiers volumineux
+    const size_t CHUNK_SIZE = (st.st_size > 300 * 1024 * 1024) ? 32768 : 
+                             (st.st_size > 50 * 1024 * 1024) ? 16384 : 8192;
+    
+    ESP_LOGI(TAG, "Utilisation d'un buffer de taille %zu pour un fichier de %zu octets", 
+             CHUNK_SIZE, (size_t)st.st_size);
+    
     char *buffer = (char*)malloc(CHUNK_SIZE);
     
     if (!buffer) {
@@ -701,11 +705,21 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Server Error");
     }
     
+    // Optimisation: positionnez le fichier au début pour garantir un départ frais
+    fseek(file, 0, SEEK_SET);
+    
+    // Désactiver les logs trop fréquents pour les gros fichiers
+    bool is_large_file = (st.st_size > 50 * 1024 * 1024);
+    size_t log_interval = is_large_file ? (10 * 1024 * 1024) : (1 * 1024 * 1024);  // 10MB ou 1MB
+    
     size_t read_bytes;
     size_t total_sent = 0;
     esp_err_t err = ESP_OK;
     
     // Commencer la lecture et l'envoi du fichier par chunks
+    unsigned long start_time = esp_timer_get_time() / 1000;  // Temps en ms
+    unsigned long last_log_time = start_time;
+    
     while ((read_bytes = fread(buffer, 1, CHUNK_SIZE, file)) > 0) {
         err = httpd_resp_send_chunk(req, buffer, read_bytes);
         if (err != ESP_OK) {
@@ -715,18 +729,28 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
         
         total_sent += read_bytes;
         
-        // Pause moins fréquente mais toujours présente pour permettre aux tâches critiques de s'exécuter
-        if (total_sent % (256 * 1024) == 0) {  // Pause tous les 256KB
-            ESP_LOGI(TAG, "Envoyé: %zu/%zu octets (%d%%)", 
+        // Logs moins fréquents pour les gros fichiers
+        unsigned long current_time = esp_timer_get_time() / 1000;
+        if (total_sent % log_interval == 0 || current_time - last_log_time > 5000) {
+            float elapsed_sec = (current_time - start_time) / 1000.0f;
+            float speed_kbps = (total_sent / 1024.0f) / elapsed_sec;
+            
+            ESP_LOGI(TAG, "Envoyé: %zu/%zu octets (%d%%), %.2f KB/s", 
                     total_sent, (size_t)st.st_size, 
-                    (int)((total_sent * 100) / st.st_size));
-            vTaskDelay(pdMS_TO_TICKS(5));  // Pause plus courte (5ms)
+                    (int)((total_sent * 100) / st.st_size),
+                    speed_kbps);
+            
+            last_log_time = current_time;
+            
+            // Pauses moins fréquentes et plus courtes pour les gros fichiers
+            if (!is_large_file) {
+                vTaskDelay(pdMS_TO_TICKS(1));  // Pause très courte (1ms) seulement pour petits fichiers
+            }
         }
         
-        // Pause occasionnelle pour éviter les watchdogs
-        if (total_sent % (512 * 1024) == 0) {  // Tous les 512KB
-            ESP_LOGW(TAG, "Pause pour éviter watchdog");
-            vTaskDelay(pdMS_TO_TICKS(10));
+        // Pour les très gros fichiers (>300MB), pause minimale seulement tous les 5MB
+        if (st.st_size > 300 * 1024 * 1024 && total_sent % (5 * 1024 * 1024) == 0) {
+            taskYIELD();  // Cède juste le CPU sans délai
         }
     }
     
@@ -734,13 +758,18 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     free(buffer);
     fclose(file);
     
+    unsigned long end_time = esp_timer_get_time() / 1000;
+    float total_time = (end_time - start_time) / 1000.0f;
+    float avg_speed = (total_sent / 1024.0f / 1024.0f) / total_time;  // MB/s
+    
     if (err == ESP_OK) {
         // Fermer la réponse avec un chunk vide
         err = httpd_resp_send_chunk(req, NULL, 0);
-        ESP_LOGI(TAG, "Fichier envoyé avec succès: %zu octets", total_sent);
+        ESP_LOGI(TAG, "Fichier envoyé avec succès: %zu octets en %.2f secondes (%.2f MB/s)", 
+                total_sent, total_time, avg_speed);
     } else {
-        ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d (total envoyé: %zu/%zu octets)",
-                err, total_sent, (size_t)st.st_size);
+        ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d (total envoyé: %zu/%zu octets, %.2f MB/s)",
+                err, total_sent, (size_t)st.st_size, avg_speed);
     }
     
     return err;
