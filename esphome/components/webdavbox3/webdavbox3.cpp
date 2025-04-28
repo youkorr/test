@@ -706,7 +706,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     }
     
     // Stratégie 2: Envoi par chunks avec surveillance des erreurs
-    char buffer[4096];
+    char buffer[2048];
     size_t read_bytes;
     size_t total_sent = 0;
     esp_err_t err = ESP_OK;
@@ -825,7 +825,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
   }
 
-  char buffer[1024];
+  char buffer[2048];
   int received;
   size_t total_received = 0;
 
