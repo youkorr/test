@@ -19,23 +19,34 @@ static const char *const TAG = "webdavbox3";
 
 // Nouvelle fonction pour décoder les URL
 std::string url_decode(const std::string &src) {
-  std::string result;
-  char ch;
-  int i, j;
-  for (i = 0; i < src.length(); i++) {
-    if (src[i] == '%' && i + 2 < src.length()) {
-      sscanf(src.substr(i + 1, 2).c_str(), "%x", &j);
-      ch = static_cast<char>(j);
-      result += ch;
-      i += 2;
-    } else if (src[i] == '+') {
-      result += ' ';
-    } else {
-      result += src[i];
+    std::string result;
+    result.reserve(src.length());  // Pré-allouer pour éviter les réallocations
+
+    const char* str = src.c_str();
+    int i = 0;
+    char ch;
+    int j;
+    
+    while (str[i]) {
+        if (str[i] == '%' && str[i+1] && str[i+2]) {
+            if (sscanf(str + i + 1, "%2x", &j) == 1) {
+                ch = static_cast<char>(j);
+                result += ch;
+                i += 3;
+            } else {
+                result += str[i++];
+            }
+        } else if (str[i] == '+') {
+            result += ' ';
+            i++;
+        } else {
+            result += str[i++];
+        }
     }
-  }
-  return result;
+    
+    return result;
 }
+
 
 void WebDAVBox3::setup() {
   // [Votre code existant]
@@ -599,130 +610,170 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
 
 
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
-  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  std::string path = get_file_path(req, inst->root_path_);
-  
-  ESP_LOGI(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
-  
-  // Ajouter des en-têtes CORS
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, HEAD, PUT, OPTIONS, DELETE, PROPFIND, PROPPATCH, MKCOL");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Authorization, Depth, Content-Type");
-  
-  // Vérifier si c'est un répertoire
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Chemin non trouvé: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-  }
-  
-  if (S_ISDIR(st.st_mode)) {
-    ESP_LOGI(TAG, "C'est un répertoire, redirection vers PROPFIND");
-    return handle_webdav_propfind(req);
-  }
-  
-  // C'est un fichier, l'ouvrir et l'envoyer
-  FILE *file = fopen(path.c_str(), "rb");
-  if (!file) {
-    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-  }
-  
-  ESP_LOGI(TAG, "Fichier ouvert avec succès: %s", path.c_str());
-  
-  // Obtenir la taille du fichier
-  fseek(file, 0, SEEK_END);
-  size_t file_size = ftell(file);
-  fseek(file, 0, SEEK_SET);
-  
-  // Déterminer le type MIME en fonction de l'extension
-  std::string content_type = "application/octet-stream"; // Type par défaut
-  std::string extension = "";
-  
-  // Extraire l'extension du fichier
-  size_t dot_pos = path.find_last_of(".");
-  if (dot_pos != std::string::npos) {
-    extension = path.substr(dot_pos + 1);
-    // Convertir l'extension en minuscules pour la comparaison
-    std::transform(extension.begin(), extension.end(), extension.begin(), 
-                  [](unsigned char c) { return std::tolower(c); });
+    auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+    std::string path = get_file_path(req, inst->root_path_);
     
-    // Attribuer le type MIME selon l'extension
-    if (extension == "mp3") {
-      content_type = "audio/mpeg";
-    } else if (extension == "mp4") {
-      content_type = "video/mp4";
-    } else if (extension == "wav" || extension == "wave") {
-      content_type = "audio/wav";
-    } else if (extension == "flac") {
-      content_type = "audio/flac";
-    } else if (extension == "txt") {
-      content_type = "text/plain";
-    } else if (extension == "html" || extension == "htm") {
-      content_type = "text/html";
-    } else if (extension == "pdf") {
-      content_type = "application/pdf";
-    } else if (extension == "jpg" || extension == "jpeg") {
-      content_type = "image/jpeg";
-    } else if (extension == "png") {
-      content_type = "image/png";
-    } else if (extension == "gif") {
-      content_type = "image/gif";
-    } else if (extension == "json") {
-      content_type = "application/json";
-    } else if (extension == "xml") {
-      content_type = "application/xml";
-    } else if (extension == "css") {
-      content_type = "text/css";
-    } else if (extension == "js") {
-      content_type = "application/javascript";
-    }
-  }
-  
-  ESP_LOGI(TAG, "Type de fichier détecté: %s pour l'extension %s (taille: %zu)", 
-           content_type.c_str(), extension.c_str(), file_size);
-  
-  // Définir le type de contenu et la longueur
-  httpd_resp_set_type(req, content_type.c_str());
-  httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
-  httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
-  
-  // Ajouter l'en-tête Content-Disposition pour les fichiers média
-  if (extension == "mp3" || extension == "mp4" || extension == "wav" || extension == "flac") {
-    // Extraire le nom du fichier du chemin
-    std::string filename = path;
-    size_t last_slash = path.find_last_of("/\\");
-    if (last_slash != std::string::npos) {
-      filename = path.substr(last_slash + 1);
+    ESP_LOGI(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
+    
+    // Vérifier si le fichier existe
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) {
+        ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
     }
     
-    std::string disposition = "inline; filename=\"" + filename + "\"";
-    httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
-  }
-  
-  // Buffer plus grand pour améliorer les performances
-  char buffer[4096];
-  size_t read_bytes;
-  size_t total_sent = 0;
-  
-  ESP_LOGI(TAG, "Début de l'envoi du fichier...");
-  
-  while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-    esp_err_t err = httpd_resp_send_chunk(req, buffer, read_bytes);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d", err);
-      fclose(file);
-      return err;
+    // Vérifier si c'est un répertoire
+    if (S_ISDIR(st.st_mode)) {
+        return handle_webdav_propfind(req);
     }
-    total_sent += read_bytes;
-  }
-  
-  ESP_LOGI(TAG, "Fichier envoyé avec succès: %s, taille: %zu octets, type: %s", 
-           path.c_str(), total_sent, content_type.c_str());
-  
-  fclose(file);
-  httpd_resp_send_chunk(req, nullptr, 0);  // Terminer la réponse
-  return ESP_OK;
+    
+    // Ouvrir le fichier
+    FILE *file = fopen(path.c_str(), "rb");
+    if (!file) {
+        ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    }
+    
+    // Configurer la connexion pour un transfert optimal
+    int sockfd = httpd_req_to_sockfd(req);
+    if (sockfd >= 0) {
+        int opt = 1;
+        setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
+        
+        // Ajustement des tampons
+        int send_buf = 32 * 1024;  // 32KB
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &send_buf, sizeof(send_buf));
+        
+        // Timeouts plus longs
+        struct timeval timeout;
+        timeout.tv_sec = 30;
+        timeout.tv_usec = 0;
+        setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    }
+    
+    // Ajouter des en-têtes CORS et caching appropriés
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, HEAD");
+    httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600");  // Cache d'une heure
+    
+    // Déterminer le type de contenu
+    const char* content_type = "application/octet-stream";
+    const char* ext = strrchr(path.c_str(), '.');
+    if (ext) {
+        ext++; // Avancer après le point
+        if (strcasecmp(ext, "mp3") == 0) content_type = "audio/mpeg";
+        else if (strcasecmp(ext, "mp4") == 0) content_type = "video/mp4";
+        else if (strcasecmp(ext, "jpg") == 0 || strcasecmp(ext, "jpeg") == 0) content_type = "image/jpeg";
+        else if (strcasecmp(ext, "png") == 0) content_type = "image/png";
+        else if (strcasecmp(ext, "gif") == 0) content_type = "image/gif";
+        else if (strcasecmp(ext, "pdf") == 0) content_type = "application/pdf";
+        else if (strcasecmp(ext, "txt") == 0) content_type = "text/plain";
+        else if (strcasecmp(ext, "html") == 0 || strcasecmp(ext, "htm") == 0) content_type = "text/html";
+    }
+    
+    // Configurer les en-têtes de la réponse
+    httpd_resp_set_type(req, content_type);
+    httpd_resp_set_hdr(req, "Content-Length", std::to_string(st.st_size).c_str());
+    httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
+    
+    ESP_LOGI(TAG, "Envoi du fichier %s (%zu octets, type: %s)", path.c_str(), (size_t)st.st_size, content_type);
+    
+    // Stratégie 1: Envoi direct d'un fichier petit
+    if (st.st_size < 64 * 1024) {  // Moins de 64KB
+        // Allouer un buffer sur le tas pour les petits fichiers
+        char* buffer = (char*)malloc(st.st_size);
+        if (buffer) {
+            // Lire tout le fichier en mémoire
+            if (fread(buffer, 1, st.st_size, file) == st.st_size) {
+                // Envoyer en une seule fois
+                esp_err_t err = httpd_resp_send(req, buffer, st.st_size);
+                free(buffer);
+                fclose(file);
+                
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "Erreur d'envoi: %d", err);
+                }
+                return err;
+            }
+            free(buffer);
+        }
+        // Si l'allocation a échoué, on continue avec la méthode par morceaux
+    }
+    
+    // Stratégie 2: Envoi par chunks avec surveillance des erreurs
+    char buffer[4096];
+    size_t read_bytes;
+    size_t total_sent = 0;
+    esp_err_t err = ESP_OK;
+    
+    while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        err = httpd_resp_send_chunk(req, buffer, read_bytes);
+        if (err != ESP_OK) {
+            // Si erreur, sortir de la boucle
+            ESP_LOGE(TAG, "Erreur d'envoi du chunk (%zu bytes): %d", read_bytes, err);
+            break;
+        }
+        
+        total_sent += read_bytes;
+        
+        // Pause périodique pour laisser l'ESP respirer
+        if (total_sent % (128 * 1024) == 0) {  // Tous les 128KB
+            ESP_LOGI(TAG, "Envoyé: %zu/%zu octets (%d%%)", 
+                    total_sent, (size_t)st.st_size, 
+                    (int)((total_sent * 100) / st.st_size));
+            vTaskDelay(pdMS_TO_TICKS(10));  // Petite pause de 10ms
+        }
+    }
+    
+    fclose(file);
+    
+    if (err == ESP_OK) {
+        // Fermer la réponse avec un chunk vide
+        err = httpd_resp_send_chunk(req, NULL, 0);
+        ESP_LOGI(TAG, "Fichier envoyé avec succès: %zu octets", total_sent);
+    } else {
+        ESP_LOGE(TAG, "Erreur lors de l'envoi du fichier: %d (total envoyé: %zu/%zu octets)",
+                err, total_sent, (size_t)st.st_size);
+    }
+    
+    return err;
+}
+
+esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::string &path, size_t file_size) {
+    // Cette méthode est pour les fichiers jusqu'à 1MB
+    if (file_size > 1024 * 1024) {
+        return ESP_FAIL;  // Trop grand, utiliser la méthode standard
+    }
+    
+    // Allouer un buffer pour tout le fichier
+    uint8_t *buffer = (uint8_t *)heap_caps_malloc(file_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buffer) {
+        ESP_LOGE(TAG, "Impossible d'allouer de la mémoire pour le fichier (%zu octets)", file_size);
+        return ESP_FAIL;
+    }
+    
+    // Ouvrir et lire le fichier
+    FILE *file = fopen(path.c_str(), "rb");
+    if (!file) {
+        heap_caps_free(buffer);
+        return ESP_FAIL;
+    }
+    
+    size_t bytes_read = fread(buffer, 1, file_size, file);
+    fclose(file);
+    
+    if (bytes_read != file_size) {
+        ESP_LOGE(TAG, "Échec de lecture du fichier complet: %zu/%zu", bytes_read, file_size);
+        heap_caps_free(buffer);
+        return ESP_FAIL;
+    }
+    
+    // Envoyer le contenu en une seule fois
+    esp_err_t ret = httpd_resp_send(req, (const char*)buffer, bytes_read);
+    heap_caps_free(buffer);
+    
+    ESP_LOGI(TAG, "Fichier envoyé en une fois: %zu octets, résultat: %d", bytes_read, ret);
+    return ret;
 }
 
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
