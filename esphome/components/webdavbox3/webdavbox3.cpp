@@ -743,8 +743,10 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
 }
 
 esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::string &path, size_t file_size) {
-    // Cette méthode est pour les fichiers jusqu'à 1MB
-    if (file_size > 1024 * 1024) {
+    // Cette méthode est pour les fichiers jusqu'à 8MB
+    const size_t MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 Mo
+
+    if (file_size > MAX_FILE_SIZE) {
         return ESP_FAIL;  // Trop grand, utiliser la méthode standard
     }
     
