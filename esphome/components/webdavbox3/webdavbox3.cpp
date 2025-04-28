@@ -11,6 +11,9 @@
 #include <ctime>
 #include <chrono>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 namespace esphome {
 namespace webdavbox3 {
