@@ -122,10 +122,10 @@ void WebDAVBox3::configure_http_server() {
     // Configuration de base
     config.server_port = port_;
     config.ctrl_port = port_ + 1000;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = true;
     
     // Paramètres de performance
-    config.stack_size = 8192;
+    config.stack_size = 16384;
     config.core_id = 0;  // Fixer sur le premier cœur
     config.task_priority = tskIDLE_PRIORITY + 5;  // Priorité plus élevée
     
@@ -135,7 +135,7 @@ void WebDAVBox3::configure_http_server() {
     config.send_wait_timeout = 60;  // 60 secondes d'attente max
     
     // Pour les grandes requêtes
-    config.max_resp_headers = 16;   // Plus d'en-têtes
+    config.max_resp_headers = 32;   // Plus d'en-têtes
     config.max_open_sockets = 7;    // Plus de sockets ouverts
     
     // Obligatoire pour les URL avec wildcards
@@ -684,7 +684,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     ESP_LOGI(TAG, "Envoi du fichier %s (%zu octets, type: %s)", path.c_str(), (size_t)st.st_size, content_type);
     
     // Stratégie 1: Envoi direct d'un fichier petit
-    if (st.st_size < 64 * 1024) {  // Moins de 64KB
+    if (st.st_size < 150 * 1024) {  // Moins de 64KB
         // Allouer un buffer sur le tas pour les petits fichiers
         char* buffer = (char*)malloc(st.st_size);
         if (buffer) {
@@ -706,7 +706,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     }
     
     // Stratégie 2: Envoi par chunks avec surveillance des erreurs
-    char buffer[2048];
+    char buffer[4096];
     size_t read_bytes;
     size_t total_sent = 0;
     esp_err_t err = ESP_OK;
@@ -825,7 +825,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
   }
 
-  char buffer[2048];
+  char buffer[4096];
   int received;
   size_t total_received = 0;
 
