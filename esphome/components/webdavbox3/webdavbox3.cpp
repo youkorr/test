@@ -177,9 +177,9 @@ void WebDAVBox3::configure_http_server() {
     .method = HTTP_GET,
     .handler = handle_webdav_get,
     .user_ctx = this,
-    .is_websocket = false,
-    .handle_ws_control_frames = false,
-    .supported_subprotocol = NULL
+    //.is_websocket = false,
+    //.handle_ws_control_frames = false,
+    //.supported_subprotocol = NULL
   };
   httpd_register_uri_handler(server_, &get_uri);
 
