@@ -122,7 +122,7 @@ void WebDAVBox3::configure_http_server() {
     // Configuration de base
     config.server_port = port_;
     config.ctrl_port = port_ + 1000;
-    config.max_uri_handlers = true;
+    config.max_uri_handlers = 16;
     
     // Paramètres de performance
     config.stack_size = 16384;
@@ -684,7 +684,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     ESP_LOGI(TAG, "Envoi du fichier %s (%zu octets, type: %s)", path.c_str(), (size_t)st.st_size, content_type);
     
     // Stratégie 1: Envoi direct d'un fichier petit
-    if (st.st_size < 150 * 1024) {  // Moins de 64KB
+    if (st.st_size < 64 * 1024) {  // Moins de 64KB
         // Allouer un buffer sur le tas pour les petits fichiers
         char* buffer = (char*)malloc(st.st_size);
         if (buffer) {
