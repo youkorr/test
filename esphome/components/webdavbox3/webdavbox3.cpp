@@ -691,7 +691,8 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     // car cela peut causer des problèmes de mémoire sur l'ESP32
     
     // Utiliser une seule stratégie d'envoi par chunks optimisée
-    const size_t CHUNK_SIZE = 8192;  // Utiliser un chunk plus grand (8KB)
+    // CHUNK_SIZE est calculé en fonction de la taille du fichier
+    const size_t CHUNK_SIZE = (st.st_size > 256 * 1024) ? 4096 : 8192;  // 4KB pour les gros fichiers, 8KB pour les plus petits
     char *buffer = (char*)malloc(CHUNK_SIZE);
     
     if (!buffer) {
@@ -704,9 +705,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     size_t total_sent = 0;
     esp_err_t err = ESP_OK;
     
-    // Désactiver la mise en veille du WiFi pendant le transfert
-    esp_wifi_set_ps(WIFI_PS_NONE);
-    
+    // Commencer la lecture et l'envoi du fichier par chunks
     while ((read_bytes = fread(buffer, 1, CHUNK_SIZE, file)) > 0) {
         err = httpd_resp_send_chunk(req, buffer, read_bytes);
         if (err != ESP_OK) {
@@ -724,19 +723,16 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
             vTaskDelay(pdMS_TO_TICKS(5));  // Pause plus courte (5ms)
         }
         
-        // Surveiller l'espace libre dans la stack
-        if (uxTaskGetStackHighWaterMark(NULL) < 1024) {
-            ESP_LOGW(TAG, "Espace stack critique, pause longue");
-            vTaskDelay(pdMS_TO_TICKS(20));
+        // Pause occasionnelle pour éviter les watchdogs
+        if (total_sent % (512 * 1024) == 0) {  // Tous les 512KB
+            ESP_LOGW(TAG, "Pause pour éviter watchdog");
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
     
     // Libérer le buffer
     free(buffer);
     fclose(file);
-    
-    // Réactiver la mise en veille du WiFi
-    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     
     if (err == ESP_OK) {
         // Fermer la réponse avec un chunk vide
