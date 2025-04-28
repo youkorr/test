@@ -644,15 +644,19 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
         int opt = 1;
         setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
         
-        // Ajustement des tampons
-        int send_buf = 32 * 1024;  // 32KB
+        // Augmenter considérablement la taille du tampon d'envoi
+        int send_buf = 64 * 1024;  // 64KB au lieu de 32KB
         setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &send_buf, sizeof(send_buf));
         
         // Timeouts plus longs
         struct timeval timeout;
-        timeout.tv_sec = 30;
+        timeout.tv_sec = 60;  // 60 secondes au lieu de 30
         timeout.tv_usec = 0;
         setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        
+        // Désactiver l'algorithme de Nagle pour améliorer la vitesse
+        opt = 1;
+        setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
     }
     
     // Ajouter des en-têtes CORS et caching appropriés
@@ -683,54 +687,56 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     
     ESP_LOGI(TAG, "Envoi du fichier %s (%zu octets, type: %s)", path.c_str(), (size_t)st.st_size, content_type);
     
-    // Stratégie 1: Envoi direct d'un fichier petit
-    if (st.st_size < 4664 * 1024) {  // Moins de 64KB
-        // Allouer un buffer sur le tas pour les petits fichiers
-        char* buffer = (char*)malloc(st.st_size);
-        if (buffer) {
-            // Lire tout le fichier en mémoire
-            if (fread(buffer, 1, st.st_size, file) == st.st_size) {
-                // Envoyer en une seule fois
-                esp_err_t err = httpd_resp_send(req, buffer, st.st_size);
-                free(buffer);
-                fclose(file);
-                
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Erreur d'envoi: %d", err);
-                }
-                return err;
-            }
-            free(buffer);
-        }
-        // Si l'allocation a échoué, on continue avec la méthode par morceaux
+    // Ne pas utiliser la stratégie de chargement complet du fichier pour les fichiers volumineux
+    // car cela peut causer des problèmes de mémoire sur l'ESP32
+    
+    // Utiliser une seule stratégie d'envoi par chunks optimisée
+    const size_t CHUNK_SIZE = 8192;  // Utiliser un chunk plus grand (8KB)
+    char *buffer = (char*)malloc(CHUNK_SIZE);
+    
+    if (!buffer) {
+        ESP_LOGE(TAG, "Impossible d'allouer le buffer pour l'envoi");
+        fclose(file);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Server Error");
     }
     
-    // Stratégie 2: Envoi par chunks avec surveillance des erreurs
-    char buffer[4096];
     size_t read_bytes;
     size_t total_sent = 0;
     esp_err_t err = ESP_OK;
     
-    while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+    // Désactiver la mise en veille du WiFi pendant le transfert
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    
+    while ((read_bytes = fread(buffer, 1, CHUNK_SIZE, file)) > 0) {
         err = httpd_resp_send_chunk(req, buffer, read_bytes);
         if (err != ESP_OK) {
-            // Si erreur, sortir de la boucle
             ESP_LOGE(TAG, "Erreur d'envoi du chunk (%zu bytes): %d", read_bytes, err);
             break;
         }
         
         total_sent += read_bytes;
         
-        // Pause périodique pour laisser l'ESP respirer
-        if (total_sent % (128 * 1024) == 0) {  // Tous les 128KB
+        // Pause moins fréquente mais toujours présente pour permettre aux tâches critiques de s'exécuter
+        if (total_sent % (256 * 1024) == 0) {  // Pause tous les 256KB
             ESP_LOGI(TAG, "Envoyé: %zu/%zu octets (%d%%)", 
                     total_sent, (size_t)st.st_size, 
                     (int)((total_sent * 100) / st.st_size));
-            vTaskDelay(pdMS_TO_TICKS(10));  // Petite pause de 10ms
+            vTaskDelay(pdMS_TO_TICKS(5));  // Pause plus courte (5ms)
+        }
+        
+        // Surveiller l'espace libre dans la stack
+        if (uxTaskGetStackHighWaterMark(NULL) < 1024) {
+            ESP_LOGW(TAG, "Espace stack critique, pause longue");
+            vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
     
+    // Libérer le buffer
+    free(buffer);
     fclose(file);
+    
+    // Réactiver la mise en veille du WiFi
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     
     if (err == ESP_OK) {
         // Fermer la réponse avec un chunk vide
@@ -743,7 +749,6 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     
     return err;
 }
-
 esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::string &path, size_t file_size) {
     // Cette méthode est pour les fichiers jusqu'à 8MB
     const size_t MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 Mo
