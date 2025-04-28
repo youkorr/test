@@ -111,7 +111,9 @@ void WebDAVBox3::configure_http_server() {
   config.recv_wait_timeout = 60;    // Augmente le timeout pour les fichiers volumineux
   config.send_wait_timeout = 60;    // Augmente le timeout pour les fichiers volumineux
   config.uri_match_fn = httpd_uri_match_wildcard; // ⚠️ IMPORTANT: Active la correspondance avec caractères génériques
-  
+  config.stack_size = 8192;
+
+ 
   // Vérifier que le serveur n'est pas déjà démarré
   if (server_ != nullptr) {
     ESP_LOGW(TAG, "Server already started, stopping previous instance");
