@@ -582,6 +582,13 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
   
+  // Ouvrir le fichier
+  FILE* file = fopen(path.c_str(), "rb");
+  if (file == NULL) {
+    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+  }
+  
   // Obtenir la taille du fichier
   fseek(file, 0, SEEK_END);
   size_t file_size = ftell(file);
