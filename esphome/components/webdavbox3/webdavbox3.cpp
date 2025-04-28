@@ -108,8 +108,9 @@ void WebDAVBox3::configure_http_server() {
   config.ctrl_port = port_ + 1000;  // évite conflit avec l'autre HTTPD si existant
   config.max_uri_handlers = 16;     // Augmentation du nombre maximum de gestionnaires URI
   config.lru_purge_enable = true;   // Active le nettoyage LRU pour éviter les problèmes de mémoire
-  config.recv_wait_timeout = 30;    // Augmente le timeout pour les fichiers volumineux
-  config.send_wait_timeout = 30;    // Augmente le timeout pour les fichiers volumineux
+  config.recv_wait_timeout = 60;    // Augmente le timeout pour les fichiers volumineux
+  config.send_wait_timeout = 60;    // Augmente le timeout pour les fichiers volumineux
+  config.uri_match_fn = httpd_uri_match_wildcard; // ⚠️ IMPORTANT: Active la correspondance avec caractères génériques
   
   // Vérifier que le serveur n'est pas déjà démarré
   if (server_ != nullptr) {
@@ -170,13 +171,18 @@ void WebDAVBox3::configure_http_server() {
   httpd_register_uri_handler(server_, &proppatch_uri);
   
   // Autres gestionnaires WebDAV
+// Gestionnaire pour GET avec caractère générique
   httpd_uri_t get_uri = {
     .uri = "/*",
     .method = HTTP_GET,
     .handler = handle_webdav_get,
-    .user_ctx = this
+    .user_ctx = this,
+    .is_websocket = false,
+    .handle_ws_control_frames = false,
+    .supported_subprotocol = NULL
   };
   httpd_register_uri_handler(server_, &get_uri);
+
   
   httpd_uri_t head_uri = {
     .uri = "/*",
@@ -318,27 +324,44 @@ std::string WebDAVBox3::get_file_path(httpd_req_t *req, const std::string &root_
   std::string path = root_path;
   
   // Log avant décodage
-  ESP_LOGD(TAG, "URI brute: %s", uri.c_str());
+  ESP_LOGI(TAG, "URI brute: %s", uri.c_str());
   
   // Décoder l'URL
   uri = url_decode(uri);
-  ESP_LOGD(TAG, "URI décodée: %s", uri.c_str());
+  ESP_LOGI(TAG, "URI décodée: %s", uri.c_str());
   
-  // Autres opérations...
-  // [...]
+  // Vérifier si le chemin racine se termine par un '/'
+  if (path.back() != '/') {
+    path += '/';
+  }
   
-  ESP_LOGD(TAG, "Mapped URI %s to path %s", req->uri, path.c_str());
+  // Supprimer le premier '/' de l'URI s'il existe
+  if (!uri.empty() && uri.front() == '/') {
+    uri = uri.substr(1);
+  }
+  
+  // Si c'est la racine, retourner le chemin racine sans ajouter de '/'
+  if (uri.empty()) {
+    ESP_LOGI(TAG, "Accès à la racine: %s", path.c_str());
+    return path.substr(0, path.length() - 1); // Enlever le dernier '/'
+  }
+  
+  // Normaliser les barres obliques en évitant les doubles barres
+  path += uri;
+  
+  ESP_LOGI(TAG, "Mapped URI %s to path %s", req->uri, path.c_str());
   
   // Vérifier si le chemin existe
   struct stat st;
   if (stat(path.c_str(), &st) == 0) {
-    ESP_LOGD(TAG, "Chemin existe: %s", path.c_str());
+    ESP_LOGI(TAG, "Chemin existe: %s", path.c_str());
   } else {
-    ESP_LOGD(TAG, "Chemin n'existe PAS: %s (errno: %d)", path.c_str(), errno);
+    ESP_LOGI(TAG, "⚠️ Chemin n'existe PAS: %s (errno: %d)", path.c_str(), errno);
   }
   
   return path;
 }
+
 
 bool WebDAVBox3::is_dir(const std::string &path) {
   struct stat st;
@@ -562,32 +585,34 @@ esp_err_t WebDAVBox3::handle_webdav_propfind(httpd_req_t *req) {
 esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
+  
   ESP_LOGI(TAG, "GET %s (URI: %s)", path.c_str(), req->uri);
   
-  // Ajouter les en-têtes CORS
+  // Ajouter des en-têtes CORS
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, HEAD, PUT, OPTIONS, DELETE, PROPFIND, PROPPATCH, MKCOL");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Authorization, Depth, Content-Type");
   
   // Vérifier si c'est un répertoire
-  if (is_dir(path)) {
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    ESP_LOGE(TAG, "Chemin non trouvé: %s (errno: %d)", path.c_str(), errno);
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+  }
+  
+  if (S_ISDIR(st.st_mode)) {
     ESP_LOGI(TAG, "C'est un répertoire, redirection vers PROPFIND");
     return handle_webdav_propfind(req);
   }
   
-  // Vérifier explicitement si le fichier existe
-  struct stat st;
-  if (stat(path.c_str(), &st) != 0) {
-    ESP_LOGE(TAG, "Fichier non trouvé: %s (errno: %d)", path.c_str(), errno);
+  // C'est un fichier, l'ouvrir et l'envoyer
+  FILE *file = fopen(path.c_str(), "rb");
+  if (!file) {
+    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   }
   
-  // Ouvrir le fichier
-  FILE* file = fopen(path.c_str(), "rb");
-  if (file == NULL) {
-    ESP_LOGE(TAG, "Impossible d'ouvrir le fichier: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-  }
+  ESP_LOGI(TAG, "Fichier ouvert avec succès: %s", path.c_str());
   
   // Obtenir la taille du fichier
   fseek(file, 0, SEEK_END);
@@ -613,6 +638,8 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
       content_type = "video/mp4";
     } else if (extension == "wav" || extension == "wave") {
       content_type = "audio/wav";
+    } else if (extension == "flac") {
+      content_type = "audio/flac";
     } else if (extension == "txt") {
       content_type = "text/plain";
     } else if (extension == "html" || extension == "htm") {
@@ -636,14 +663,16 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     }
   }
   
-  ESP_LOGD(TAG, "Type de fichier détecté: %s pour l'extension %s", content_type.c_str(), extension.c_str());
+  ESP_LOGI(TAG, "Type de fichier détecté: %s pour l'extension %s (taille: %zu)", 
+           content_type.c_str(), extension.c_str(), file_size);
   
   // Définir le type de contenu et la longueur
   httpd_resp_set_type(req, content_type.c_str());
   httpd_resp_set_hdr(req, "Content-Length", std::to_string(file_size).c_str());
+  httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
   
   // Ajouter l'en-tête Content-Disposition pour les fichiers média
-  if (extension == "mp3" || extension == "mp4" || extension == "wav" || extension == "wave") {
+  if (extension == "mp3" || extension == "mp4" || extension == "wav" || extension == "flac") {
     // Extraire le nom du fichier du chemin
     std::string filename = path;
     size_t last_slash = path.find_last_of("/\\");
@@ -651,13 +680,16 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
       filename = path.substr(last_slash + 1);
     }
     
-    std::string disposition = "attachment; filename=\"" + filename + "\"";
+    std::string disposition = "inline; filename=\"" + filename + "\"";
     httpd_resp_set_hdr(req, "Content-Disposition", disposition.c_str());
   }
   
-  char buffer[1024];
+  // Buffer plus grand pour améliorer les performances
+  char buffer[4096];
   size_t read_bytes;
   size_t total_sent = 0;
+  
+  ESP_LOGI(TAG, "Début de l'envoi du fichier...");
   
   while ((read_bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
     esp_err_t err = httpd_resp_send_chunk(req, buffer, read_bytes);
@@ -669,13 +701,14 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     total_sent += read_bytes;
   }
   
-  ESP_LOGD(TAG, "Fichier envoyé: %s, taille: %zu octets, type: %s", 
+  ESP_LOGI(TAG, "Fichier envoyé avec succès: %s, taille: %zu octets, type: %s", 
            path.c_str(), total_sent, content_type.c_str());
   
   fclose(file);
-  httpd_resp_send_chunk(req, nullptr, 0);
+  httpd_resp_send_chunk(req, nullptr, 0);  // Terminer la réponse
   return ESP_OK;
 }
+
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
