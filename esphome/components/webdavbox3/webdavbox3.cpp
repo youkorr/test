@@ -472,6 +472,7 @@ std::string WebDAVBox3::generate_prop_xml(const std::string &href, bool is_direc
       else if (ext == "mp3") content_type = "audio/mpeg";
       else if (ext == "mp4") content_type = "video/mp4";
       else if (ext == "pdf") content_type = "application/pdf";
+      else if (ext == "flac") content_type = "audio/flac";  
     }
     
     xml += "        <D:getcontenttype>" + content_type + "</D:getcontenttype>\n";
@@ -668,6 +669,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
         else if (strcasecmp(ext, "mp4") == 0) content_type = "video/mp4";
         else if (strcasecmp(ext, "jpg") == 0 || strcasecmp(ext, "jpeg") == 0) content_type = "image/jpeg";
         else if (strcasecmp(ext, "png") == 0) content_type = "image/png";
+        else if (strcasecmp(ext, "flac") == 0) content_type = "audio/flac";    
         else if (strcasecmp(ext, "gif") == 0) content_type = "image/gif";
         else if (strcasecmp(ext, "pdf") == 0) content_type = "application/pdf";
         else if (strcasecmp(ext, "txt") == 0) content_type = "text/plain";
