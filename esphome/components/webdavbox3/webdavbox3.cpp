@@ -838,63 +838,75 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         ESP_LOGE(TAG, "Impossible d'ouvrir le fichier en écriture: %s (errno: %d)", path.c_str(), errno);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file for writing");
     }
-    
-    // Lire et écrire le contenu par morceaux
-    char buffer[4096];
-    int total_received = 0;
-    int received;
-    bool success = true;
-    
-    while (total_received < content_len) {
-        received = httpd_req_recv(req, buffer, MIN(sizeof(buffer), content_len - total_received));
+
+    // Si le contenu a une taille, le recevoir
+    if (content_len > 0) {
+        char buffer[4096];
+        int total_received = 0;
+        int received;
+        bool success = true;
         
-        if (received <= 0) {
-            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                // Timeout, on continue
-                ESP_LOGW(TAG, "Timeout en réception, on continue...");
-                continue;
+        while (total_received < content_len) {
+            received = httpd_req_recv(req, buffer, MIN(sizeof(buffer), content_len - total_received));
+            
+            if (received <= 0) {
+                if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                    // Timeout, on continue
+                    ESP_LOGW(TAG, "Timeout en réception, on continue...");
+                    continue;
+                }
+                
+                // Erreur de socket
+                ESP_LOGE(TAG, "Erreur de socket en réception: %d", received);
+                success = false;
+                break;
             }
             
-            // Erreur de socket
-            ESP_LOGE(TAG, "Erreur de socket en réception: %d", received);
-            success = false;
-            break;
-        }
-        
-        size_t bytes_written = fwrite(buffer, 1, received, file);
-        if (bytes_written != received) {
-            ESP_LOGE(TAG, "Échec d'écriture dans le fichier: %zu/%d", bytes_written, received);
-            success = false;
-            break;
-        }
-        
-        total_received += received;
-        
-        // Afficher la progression pour les fichiers plus grands que 100KB
-        if (content_len > 100 * 1024 && total_received % (64 * 1024) == 0) {
-            ESP_LOGI(TAG, "Progression du téléchargement: %d/%d octets (%d%%)", 
-                    total_received, content_len, (total_received * 100) / content_len);
+            size_t bytes_written = fwrite(buffer, 1, received, file);
+            if (bytes_written != received) {
+                ESP_LOGE(TAG, "Échec d'écriture dans le fichier: %zu/%d", bytes_written, received);
+                success = false;
+                break;
+            }
             
-            // Réinitialiser le watchdog timer pour éviter les timeouts sur les grands fichiers
-            esp_task_wdt_reset();
-            vTaskDelay(pdMS_TO_TICKS(1));  // Petit délai pour permettre aux autres tâches de s'exécuter
+            total_received += received;
+            
+            // Feedback de progression pour les grands fichiers
+            if (content_len > 100 * 1024 && total_received % (64 * 1024) == 0) {
+                ESP_LOGI(TAG, "Progression: %d/%d octets (%d%%)", 
+                        total_received, content_len, (total_received * 100) / content_len);
+                esp_task_wdt_reset();
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+
+            // Si nous avons tout reçu, pas besoin de continuer
+            if (total_received >= content_len) {
+                break;
+            }
         }
+        
+        if (!success) {
+            fclose(file);
+            unlink(path.c_str());  // Supprimer le fichier partiellement écrit
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
+        }
+    } else {
+        // Cas spécial: fichier vide (content_len = 0)
+        ESP_LOGI(TAG, "Création d'un fichier vide: %s", path.c_str());
+        // Le fichier est déjà ouvert, pas besoin d'écrire quoi que ce soit
     }
     
     fclose(file);
     
-    if (!success) {
-        ESP_LOGE(TAG, "Échec du téléchargement du fichier");
-        unlink(path.c_str());  // Supprimer le fichier partiellement écrit
-        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
-    }
-    
-    ESP_LOGI(TAG, "Fichier téléchargé avec succès: %s (%d octets)", path.c_str(), total_received);
+    ESP_LOGI(TAG, "Fichier téléchargé avec succès: %s (%d octets)", path.c_str(), content_len);
     
     // En-têtes de réponse
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_status(req, "201 Created");
-    httpd_resp_send(req, NULL, 0);
+    
+    // Important: s'assurer que le corps de la réponse est vide mais correctement formé
+    const char* created_response = "";
+    httpd_resp_send(req, created_response, 0);
     
     return ESP_OK;
 }
