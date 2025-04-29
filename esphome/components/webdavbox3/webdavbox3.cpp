@@ -821,94 +821,105 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
     
-    // Obtenir la taille du contenu
+    // Get content length, handle -1 for chunked encoding
     int content_len = req->content_len;
-    ESP_LOGI(TAG, "Taille du contenu: %d octets", content_len);
+    ESP_LOGI(TAG, "Content length: %d bytes", content_len);
     
-    // Vérifier si c'est un répertoire
+    // Check if it's a directory
     struct stat st;
     if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-        ESP_LOGE(TAG, "Ne peut pas écraser un dossier: %s", path.c_str());
+        ESP_LOGE(TAG, "Cannot overwrite a directory: %s", path.c_str());
         return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
     }
     
-    // Ouvrir le fichier en écriture
+    // Open file for writing
     FILE *file = fopen(path.c_str(), "wb");
     if (!file) {
-        ESP_LOGE(TAG, "Impossible d'ouvrir le fichier en écriture: %s (errno: %d)", path.c_str(), errno);
+        ESP_LOGE(TAG, "Failed to open file for writing: %s (errno: %d)", path.c_str(), errno);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file for writing");
     }
-
-    // Si le contenu a une taille, le recevoir
-    if (content_len > 0) {
-        char buffer[4096];
-        int total_received = 0;
-        int received;
-        bool success = true;
+    
+    bool chunked_encoding = (content_len == -1);
+    int total_received = 0;
+    bool success = true;
+    
+    // Process the request body
+    char buffer[4096];
+    int received;
+    
+    do {
+        // Receive data
+        received = httpd_req_recv(req, buffer, sizeof(buffer));
         
-        while (total_received < content_len) {
-            received = httpd_req_recv(req, buffer, MIN(sizeof(buffer), content_len - total_received));
+        if (received < 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                // Timeout, just continue
+                ESP_LOGW(TAG, "Socket timeout, continuing...");
+                continue;
+            }
             
-            if (received <= 0) {
-                if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                    // Timeout, on continue
-                    ESP_LOGW(TAG, "Timeout en réception, on continue...");
-                    continue;
-                }
-                
-                // Erreur de socket
-                ESP_LOGE(TAG, "Erreur de socket en réception: %d", received);
+            // Other socket error
+            ESP_LOGE(TAG, "Socket error on receive: %d", received);
+            success = false;
+            break;
+        }
+        
+        // Zero means end of the request body
+        if (received == 0) {
+            if (chunked_encoding || total_received == content_len) {
+                // Normal end of data
+                break;
+            } else if (!chunked_encoding && total_received < content_len) {
+                // Premature end - error
+                ESP_LOGE(TAG, "Premature end of data: received %d of %d bytes", total_received, content_len);
                 success = false;
                 break;
             }
-            
+        }
+        
+        // Write data to file
+        if (received > 0) {
             size_t bytes_written = fwrite(buffer, 1, received, file);
             if (bytes_written != received) {
-                ESP_LOGE(TAG, "Échec d'écriture dans le fichier: %zu/%d", bytes_written, received);
+                ESP_LOGE(TAG, "Failed to write to file: %zu/%d", bytes_written, received);
                 success = false;
                 break;
             }
             
             total_received += received;
             
-            // Feedback de progression pour les grands fichiers
-            if (content_len > 100 * 1024 && total_received % (64 * 1024) == 0) {
-                ESP_LOGI(TAG, "Progression: %d/%d octets (%d%%)", 
+            // Progress feedback for large files
+            if (total_received > 100 * 1024 && total_received % (64 * 1024) == 0) {
+                if (!chunked_encoding) {
+                    ESP_LOGI(TAG, "Progress: %d/%d bytes (%d%%)", 
                         total_received, content_len, (total_received * 100) / content_len);
+                } else {
+                    ESP_LOGI(TAG, "Progress: %d bytes received", total_received);
+                }
                 esp_task_wdt_reset();
                 vTaskDelay(pdMS_TO_TICKS(1));
             }
-
-            // Si nous avons tout reçu, pas besoin de continuer
-            if (total_received >= content_len) {
-                break;
-            }
         }
-        
-        if (!success) {
-            fclose(file);
-            unlink(path.c_str());  // Supprimer le fichier partiellement écrit
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
-        }
-    } else {
-        // Cas spécial: fichier vide (content_len = 0)
-        ESP_LOGI(TAG, "Création d'un fichier vide: %s", path.c_str());
-        // Le fichier est déjà ouvert, pas besoin d'écrire quoi que ce soit
-    }
+    } while (received > 0 || received == HTTPD_SOCK_ERR_TIMEOUT);
     
     fclose(file);
     
-    ESP_LOGI(TAG, "Fichier téléchargé avec succès: %s (%d octets)", path.c_str(), content_len);
+    if (!success) {
+        ESP_LOGE(TAG, "File upload failed");
+        unlink(path.c_str());  // Delete partially written file
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
+    }
     
-    // En-têtes de réponse
+    ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
+    
+    // Response headers
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Content-Type", "text/plain");
+    httpd_resp_set_hdr(req, "Content-Length", "0");
     httpd_resp_set_status(req, "201 Created");
     
-    // Important: s'assurer que le corps de la réponse est vide mais correctement formé
-    const char* created_response = "";
-    httpd_resp_send(req, created_response, 0);
-    
-    return ESP_OK;
+    // Send empty response body
+    return httpd_resp_send(req, "", 0);
 }
 
 
