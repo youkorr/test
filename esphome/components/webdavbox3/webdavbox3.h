@@ -24,6 +24,8 @@ class WebDAVBox3 : public Component {
   void set_username(const std::string &username) { username_ = username; }
   void set_password(const std::string &password) { password_ = password; }
   void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
+  void add_cors_headers(httpd_req_t *req);
+  void register_handlers();
 
   bool mount_sd_card();  // Ajout de ta fonction publique
 
