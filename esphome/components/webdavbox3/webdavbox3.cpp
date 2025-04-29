@@ -549,7 +549,7 @@ void WebDAVBox3::register_handlers() {
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
     ESP_LOGI(TAG, "OPTIONS %s", req->uri);
     
-    // CRUCIAL: En-têtes CORS complets pour toutes les requêtes
+    // CRUCIAL: Complete CORS headers for all requests
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", 
                      "GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS");
@@ -557,21 +557,18 @@ esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
                      "Authorization, Content-Type, Depth, Destination, Overwrite");
     httpd_resp_set_hdr(req, "Access-Control-Max-Age", "3600");
     
-    // En-têtes WebDAV standards
+    // Standard WebDAV headers
     httpd_resp_set_hdr(req, "DAV", "1, 2");
     httpd_resp_set_hdr(req, "Allow", 
                      "GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS");
     httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
     
-    // IMPORTANT: Type de contenu et longueur explicites pour une réponse bien formée
+    // Set the content type
     httpd_resp_set_type(req, "text/plain");
-    httpd_resp_set_hdr(req, "Content-Length", "0");
     
-    // Envoyer une réponse vide
-    httpd_resp_send(req, "", 0);
-    return ESP_OK;
+    // Send empty response
+    return httpd_resp_sendstr(req, "");
 }
-
 
 
 
@@ -875,67 +872,104 @@ esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     std::string path = get_file_path(req, inst->root_path_);
-
+    
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
+    
+    // Get content length
     int content_len = req->content_len;
     ESP_LOGI(TAG, "Content length: %d bytes", content_len);
-
+    
+    // Check if it's a directory
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+        ESP_LOGE(TAG, "Cannot overwrite a directory: %s", path.c_str());
+        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+    }
+    
+    // Open file for writing
     FILE *file = fopen(path.c_str(), "wb");
     if (!file) {
-        ESP_LOGE(TAG, "Cannot open file for writing: %s (errno: %d)", path.c_str(), errno);
-        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+        ESP_LOGE(TAG, "Failed to open file for writing: %s (errno: %d)", path.c_str(), errno);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file for writing");
     }
-
-    if (content_len > 0) {
-        char *buffer = static_cast<char *>(malloc(4096));
-        if (!buffer) {
+    
+    bool is_chunked = (content_len < 0);
+    int total_received = 0;
+    char buffer[4096];
+    
+    // Loop to read all data
+    while (true) {
+        int received = httpd_req_recv(req, buffer, sizeof(buffer));
+        ESP_LOGI(TAG, "Received %d bytes", received);
+        
+        if (received < 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                // Timeout, retry
+                ESP_LOGW(TAG, "Socket timeout, retrying...");
+                continue;
+            }
+            
+            // Other socket error
+            ESP_LOGE(TAG, "Socket error: %d", received);
             fclose(file);
-            ESP_LOGE(TAG, "Failed to allocate buffer");
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            unlink(path.c_str());
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Socket error during upload");
         }
-
-        int total_received = 0;
-        while (total_received < content_len) {
-            int to_read = MIN(4096, content_len - total_received);
-            int received = httpd_req_recv(req, buffer, to_read);
-            if (received <= 0) {
-                ESP_LOGE(TAG, "Error receiving data: %d", received);
-                free(buffer);
-                fclose(file);
-                unlink(path.c_str());
-                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file data");
-            }
-
-            size_t written = fwrite(buffer, 1, received, file);
-            if (written != received) {
-                ESP_LOGE(TAG, "File write error: %zu/%d", written, received);
-                free(buffer);
-                fclose(file);
-                unlink(path.c_str());
-                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write to file");
-            }
-
-            total_received += received;
-            ESP_LOGD(TAG, "Received: %d/%d bytes", total_received, content_len);
+        
+        // No more data
+        if (received == 0) {
+            break;
         }
-
-        free(buffer);
-    } else {
-        ESP_LOGI(TAG, "Creating empty file");
+        
+        // Write received data to file
+        size_t written = fwrite(buffer, 1, received, file);
+        if (written != received) {
+            ESP_LOGE(TAG, "Write error: %zu/%d", written, received);
+            fclose(file);
+            unlink(path.c_str());
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error during upload");
+        }
+        
+        total_received += received;
+        ESP_LOGI(TAG, "Total received so far: %d bytes", total_received);
+        
+        // Progress for large files
+        if (total_received > 100 * 1024 && total_received % (64 * 1024) == 0) {
+            if (!is_chunked) {
+                ESP_LOGI(TAG, "Progress: %d/%d bytes (%d%%)", 
+                    total_received, content_len, (total_received * 100) / content_len);
+            } else {
+                ESP_LOGI(TAG, "Progress: %d bytes received", total_received);
+            }
+            esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+        
+        // If not chunked, check if we've received all data
+        if (!is_chunked && content_len > 0 && total_received >= content_len) {
+            break;
+        }
     }
-
+    
     fclose(file);
-
-    // Répondre proprement sans header Content-Length explicite
-    httpd_resp_set_status(req, "201 Created");
+    
+    ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
+    
+    // Set WebDAV response headers
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, PUT, DELETE, PROPFIND, MKCOL, MOVE");
-    httpd_resp_set_type(req, "application/xml");  // Plus fiable que text/plain pour WebDAV
-
-    httpd_resp_send(req, "", 0);  // Réponse vide bien formée
-
-    ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), content_len);
-    return ESP_OK;
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", 
+                     "GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", 
+                     "Authorization, Content-Type, Depth, Destination, Overwrite");
+    
+    // Set status code
+    httpd_resp_set_status(req, "201 Created");
+    
+    // Set content type but avoid setting Content-Length
+    httpd_resp_set_type(req, "text/plain");
+    
+    // Send empty response
+    return httpd_resp_sendstr(req, "");
 }
 
 esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
