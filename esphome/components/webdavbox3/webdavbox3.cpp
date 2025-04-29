@@ -821,7 +821,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
     
-    // Get content length, handle -1 for chunked encoding
+    // Get content length
     int content_len = req->content_len;
     ESP_LOGI(TAG, "Content length: %d bytes", content_len);
     
@@ -839,87 +839,83 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file for writing");
     }
     
-    bool chunked_encoding = (content_len == -1);
+    // Process the data
+    char buffer[4096];
     int total_received = 0;
+    int received;
     bool success = true;
     
-    // Process the request body
-    char buffer[4096];
-    int received;
-    
-    do {
-        // Receive data
-        received = httpd_req_recv(req, buffer, sizeof(buffer));
-        
-        if (received < 0) {
-            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                // Timeout, just continue
-                ESP_LOGW(TAG, "Socket timeout, continuing...");
-                continue;
+    // Handle case where content_len is -1 (chunked encoding) or 0 (empty file)
+    if (content_len > 0) {
+        do {
+            // Calculate how much to read this time
+            size_t to_read = sizeof(buffer);
+            if (content_len > 0 && (content_len - total_received) < to_read) {
+                to_read = content_len - total_received;
             }
             
-            // Other socket error
-            ESP_LOGE(TAG, "Socket error on receive: %d", received);
-            success = false;
-            break;
-        }
-        
-        // Zero means end of the request body
-        if (received == 0) {
-            if (chunked_encoding || total_received == content_len) {
-                // Normal end of data
-                break;
-            } else if (!chunked_encoding && total_received < content_len) {
-                // Premature end - error
-                ESP_LOGE(TAG, "Premature end of data: received %d of %d bytes", total_received, content_len);
+            received = httpd_req_recv(req, buffer, to_read);
+            
+            if (received < 0) {
+                if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                    ESP_LOGW(TAG, "Timeout reading data, continuing...");
+                    continue;
+                }
+                
+                ESP_LOGE(TAG, "Socket error: %d", received);
                 success = false;
                 break;
             }
-        }
-        
-        // Write data to file
-        if (received > 0) {
-            size_t bytes_written = fwrite(buffer, 1, received, file);
-            if (bytes_written != received) {
-                ESP_LOGE(TAG, "Failed to write to file: %zu/%d", bytes_written, received);
+            
+            // End of data
+            if (received == 0) {
+                break;
+            }
+            
+            // Write to file
+            size_t written = fwrite(buffer, 1, received, file);
+            if (written != received) {
+                ESP_LOGE(TAG, "Write error: %zu/%d", written, received);
                 success = false;
                 break;
             }
             
             total_received += received;
             
-            // Progress feedback for large files
+            // Feedback for large files
             if (total_received > 100 * 1024 && total_received % (64 * 1024) == 0) {
-                if (!chunked_encoding) {
-                    ESP_LOGI(TAG, "Progress: %d/%d bytes (%d%%)", 
-                        total_received, content_len, (total_received * 100) / content_len);
-                } else {
-                    ESP_LOGI(TAG, "Progress: %d bytes received", total_received);
-                }
+                ESP_LOGI(TAG, "Progress: %d/%d bytes (%d%%)", 
+                    total_received, content_len, (total_received * 100) / content_len);
                 esp_task_wdt_reset();
                 vTaskDelay(pdMS_TO_TICKS(1));
             }
-        }
-    } while (received > 0 || received == HTTPD_SOCK_ERR_TIMEOUT);
+            
+            // If we're receiving a known size, check if we're done
+            if (content_len > 0 && total_received >= content_len) {
+                break;
+            }
+            
+        } while (true);
+    }
     
     fclose(file);
     
     if (!success) {
         ESP_LOGE(TAG, "File upload failed");
-        unlink(path.c_str());  // Delete partially written file
+        unlink(path.c_str());
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
     }
     
     ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
     
-    // Response headers
+    // Try a simpler response approach
+    httpd_resp_set_status(req, HTTPD_201);
+    httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Content-Type", "text/plain");
-    httpd_resp_set_hdr(req, "Content-Length", "0");
-    httpd_resp_set_status(req, "201 Created");
     
-    // Send empty response body
-    return httpd_resp_send(req, "", 0);
+    // Send a simple response and return the result
+    const char *resp = "";
+    return httpd_resp_send(req, resp, strlen(resp));
 }
 
 
