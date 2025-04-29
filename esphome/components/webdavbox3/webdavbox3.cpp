@@ -909,7 +909,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
     
     // Try a simpler response approach
-    httpd_resp_set_status(req, HTTPD_201);
+    httpd_resp_set_status(req, "201 Created");
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     
