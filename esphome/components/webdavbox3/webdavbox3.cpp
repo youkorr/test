@@ -14,6 +14,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include "esp_timer.h"
+
 
 namespace esphome {
 namespace webdavbox3 {
