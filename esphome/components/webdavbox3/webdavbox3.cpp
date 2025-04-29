@@ -498,22 +498,22 @@ esp_err_t WebDAVBox3::handle_root(httpd_req_t *req) {
 
 // Gestionnaire OPTIONS
 esp_err_t WebDAVBox3::handle_webdav_options(httpd_req_t *req) {
-  ESP_LOGI(TAG, "OPTIONS pour %s", req->uri);
-  
-  // En-têtes DAV standard
-  httpd_resp_set_hdr(req, "Allow", "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
-  httpd_resp_set_hdr(req, "DAV", "1, 2");
-  httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
-  
-  // En-têtes CORS complets
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "OPTIONS, GET, HEAD, POST, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Authorization, Content-Type, Depth, Destination, If-Match, If-Modified-Since, If-None-Match, Lock-Token, Overwrite, Timeout");
-  httpd_resp_set_hdr(req, "Access-Control-Max-Age", "3600");
-  httpd_resp_set_hdr(req, "Access-Control-Expose-Headers", "ETag, Lock-Token");
-  
-  httpd_resp_send(req, NULL, 0);
-  return ESP_OK;
+    ESP_LOGI(TAG, "OPTIONS %s", req->uri);
+    
+    // En-têtes de réponse pour OPTIONS
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", 
+                      "GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", 
+                      "Authorization, Content-Type, Depth, Destination, Overwrite");
+    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "3600");
+    httpd_resp_set_hdr(req, "DAV", "1, 2");
+    httpd_resp_set_hdr(req, "Allow", 
+                      "GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, MKCOL, COPY, MOVE");
+    httpd_resp_set_hdr(req, "MS-Author-Via", "DAV");
+    
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
 }
 
 
@@ -816,67 +816,89 @@ esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::
 }
 
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
-  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  std::string path = get_file_path(req, inst->root_path_);
-
-  ESP_LOGD(TAG, "PUT %s", path.c_str());
-  
-  // Vérifier si le répertoire parent existe
-  std::string parent_dir = path.substr(0, path.find_last_of('/'));
-  if (!parent_dir.empty() && !is_dir(parent_dir)) {
-    ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-    // Créer les répertoires parents récursivement si nécessaire
-    // Fonction qui crée le répertoire de manière récursive
-    std::string current_path = "";
-    std::istringstream path_stream(parent_dir);
-    std::string segment;
+    auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+    std::string path = get_file_path(req, inst->root_path_);
     
-    while (std::getline(path_stream, segment, '/')) {
-      if (segment.empty()) continue;
-      
-      if (current_path.empty()) {
-        current_path = "/";
-      }
-      
-      current_path += segment + "/";
-      
-      if (!is_dir(current_path)) {
-        ESP_LOGI(TAG, "Création du répertoire intermédiaire: %s", current_path.c_str());
-        if (mkdir(current_path.c_str(), 0755) != 0) {
-          ESP_LOGE(TAG, "Impossible de créer le répertoire: %s (errno: %d)", current_path.c_str(), errno);
-          return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
+    ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
+    
+    // Obtenir la taille du contenu
+    int content_len = req->content_len;
+    ESP_LOGI(TAG, "Taille du contenu: %d octets", content_len);
+    
+    // Vérifier si c'est un répertoire
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+        ESP_LOGE(TAG, "Ne peut pas écraser un dossier: %s", path.c_str());
+        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+    }
+    
+    // Ouvrir le fichier en écriture
+    FILE *file = fopen(path.c_str(), "wb");
+    if (!file) {
+        ESP_LOGE(TAG, "Impossible d'ouvrir le fichier en écriture: %s (errno: %d)", path.c_str(), errno);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file for writing");
+    }
+    
+    // Lire et écrire le contenu par morceaux
+    char buffer[4096];
+    int total_received = 0;
+    int received;
+    bool success = true;
+    
+    while (total_received < content_len) {
+        received = httpd_req_recv(req, buffer, MIN(sizeof(buffer), content_len - total_received));
+        
+        if (received <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                // Timeout, on continue
+                ESP_LOGW(TAG, "Timeout en réception, on continue...");
+                continue;
+            }
+            
+            // Erreur de socket
+            ESP_LOGE(TAG, "Erreur de socket en réception: %d", received);
+            success = false;
+            break;
         }
-      }
+        
+        size_t bytes_written = fwrite(buffer, 1, received, file);
+        if (bytes_written != received) {
+            ESP_LOGE(TAG, "Échec d'écriture dans le fichier: %zu/%d", bytes_written, received);
+            success = false;
+            break;
+        }
+        
+        total_received += received;
+        
+        // Afficher la progression pour les fichiers plus grands que 100KB
+        if (content_len > 100 * 1024 && total_received % (64 * 1024) == 0) {
+            ESP_LOGI(TAG, "Progression du téléchargement: %d/%d octets (%d%%)", 
+                    total_received, content_len, (total_received * 100) / content_len);
+            
+            // Réinitialiser le watchdog timer pour éviter les timeouts sur les grands fichiers
+            esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(1));  // Petit délai pour permettre aux autres tâches de s'exécuter
+        }
     }
-  }
-
-  // Ouvrir le fichier avec des permissions explicites
-  FILE *file = fopen(path.c_str(), "wb");
-  if (!file) {
-    ESP_LOGE(TAG, "Impossible de créer le fichier: %s (errno: %d)", path.c_str(), errno);
-    return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
-  }
-
-  char buffer[4096];
-  int received;
-  size_t total_received = 0;
-
-  while ((received = httpd_req_recv(req, buffer, sizeof(buffer))) > 0) {
-    if (fwrite(buffer, 1, received, file) != received) {
-      ESP_LOGE(TAG, "Erreur d'écriture dans le fichier: %s", path.c_str());
-      fclose(file);
-      return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write to file");
+    
+    fclose(file);
+    
+    if (!success) {
+        ESP_LOGE(TAG, "Échec du téléchargement du fichier");
+        unlink(path.c_str());  // Supprimer le fichier partiellement écrit
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
     }
-    total_received += received;
-  }
-
-  ESP_LOGD(TAG, "Fichier reçu et enregistré: %s, taille: %zu octets", path.c_str(), total_received);
-  
-  fclose(file);
-  httpd_resp_set_status(req, "201 Created");
-  httpd_resp_send(req, NULL, 0);
-  return ESP_OK;
+    
+    ESP_LOGI(TAG, "Fichier téléchargé avec succès: %s (%d octets)", path.c_str(), total_received);
+    
+    // En-têtes de réponse
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_status(req, "201 Created");
+    httpd_resp_send(req, NULL, 0);
+    
+    return ESP_OK;
 }
+
 
 esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
@@ -911,38 +933,34 @@ esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
 }
 
 esp_err_t WebDAVBox3::handle_webdav_mkcol(httpd_req_t *req) {
-  auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
-  std::string path = get_file_path(req, inst->root_path_);
-
-  ESP_LOGD(TAG, "MKCOL %s", path.c_str());
-  
-  // Vérifier si le chemin existe déjà
-  struct stat st;
-  if (stat(path.c_str(), &st) == 0) {
-    ESP_LOGE(TAG, "Le répertoire existe déjà: %s", path.c_str());
-    return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Resource already exists");
-  }
-
-  // Créer le répertoire parent si nécessaire
-  std::string parent_dir = path.substr(0, path.find_last_of('/'));
-  if (!parent_dir.empty() && !is_dir(parent_dir)) {
-    ESP_LOGI(TAG, "Création du répertoire parent: %s", parent_dir.c_str());
-    if (mkdir(parent_dir.c_str(), 0777) != 0) {
-      ESP_LOGE(TAG, "Impossible de créer le répertoire parent: %s (errno: %d)", parent_dir.c_str(), errno);
+    auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
+    std::string path = get_file_path(req, inst->root_path_);
+    
+    ESP_LOGI(TAG, "MKCOL %s (URI: %s)", path.c_str(), req->uri);
+    
+    // Vérifier si le chemin existe déjà
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0) {
+        ESP_LOGE(TAG, "Le chemin existe déjà: %s", path.c_str());
+        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
     }
-  }
-
-  if (mkdir(path.c_str(), 0755) == 0) {
-    ESP_LOGI(TAG, "Répertoire créé: %s", path.c_str());
+    
+    // Créer le dossier
+    if (mkdir(path.c_str(), 0755) != 0) {
+        ESP_LOGE(TAG, "Échec de la création du dossier: %s (errno: %d)", path.c_str(), errno);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
+    }
+    
+    ESP_LOGI(TAG, "Dossier créé avec succès: %s", path.c_str());
+    
+    // En-têtes de réponse
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_status(req, "201 Created");
     httpd_resp_send(req, NULL, 0);
+    
     return ESP_OK;
-  } else {
-    ESP_LOGE(TAG, "Erreur lors de la création du répertoire: %s (errno: %d)", path.c_str(), errno);
-  }
-
-  return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create directory");
 }
+
 
 esp_err_t WebDAVBox3::handle_webdav_move(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
