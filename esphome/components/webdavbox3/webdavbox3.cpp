@@ -877,7 +877,6 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     std::string path = get_file_path(req, inst->root_path_);
 
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
-
     int content_len = req->content_len;
     ESP_LOGI(TAG, "Content length: %d bytes", content_len);
 
@@ -896,23 +895,24 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         }
 
         int total_received = 0;
-        esp_err_t ret = ESP_OK;
-
         while (total_received < content_len) {
             int to_read = MIN(4096, content_len - total_received);
             int received = httpd_req_recv(req, buffer, to_read);
-
             if (received <= 0) {
-                ESP_LOGE(TAG, "Socket error during receive: %d", received);
-                ret = ESP_FAIL;
-                break;
+                ESP_LOGE(TAG, "Error receiving data: %d", received);
+                free(buffer);
+                fclose(file);
+                unlink(path.c_str());
+                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file data");
             }
 
             size_t written = fwrite(buffer, 1, received, file);
             if (written != received) {
                 ESP_LOGE(TAG, "File write error: %zu/%d", written, received);
-                ret = ESP_FAIL;
-                break;
+                free(buffer);
+                fclose(file);
+                unlink(path.c_str());
+                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to write to file");
             }
 
             total_received += received;
@@ -920,23 +920,18 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         }
 
         free(buffer);
-
-        if (ret != ESP_OK) {
-            fclose(file);
-            unlink(path.c_str());  // Supprimer le fichier partiellement écrit
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive file");
-        }
     } else {
         ESP_LOGI(TAG, "Creating empty file");
     }
 
     fclose(file);
 
-    // Répondre proprement
+    // Répondre proprement sans header Content-Length explicite
     httpd_resp_set_status(req, "201 Created");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, PUT, DELETE, PROPFIND, MKCOL, MOVE");
-    //httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_type(req, "application/xml");  // Plus fiable que text/plain pour WebDAV
+
     httpd_resp_send(req, "", 0);  // Réponse vide bien formée
 
     ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), content_len);
