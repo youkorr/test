@@ -20,9 +20,52 @@
 namespace esphome {
 namespace webdavbox3 {
 
-bool create_directories_util(const std::string &path);
+
 
 static const char *const TAG = "webdavbox3";
+
+bool create_directories_util(const std::string& path) {
+    char tmp[256];
+    char *p = NULL;
+    size_t len;
+
+    snprintf(tmp, sizeof(tmp), "%s", path.c_str());
+    len = strlen(tmp);
+
+    if (len > 0 && tmp[len - 1] == '/') {
+        tmp[len - 1] = 0;
+    }
+
+    for (p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = 0;
+            struct stat st;
+            if (stat(tmp, &st) != 0) {
+                if (mkdir(tmp, 0755) != 0) {
+                    ESP_LOGE("WEBDAV", "Failed to create directory: %s (errno: %d)", tmp, errno);
+                    return false;
+                }
+            } else if (!S_ISDIR(st.st_mode)) {
+                ESP_LOGE("WEBDAV", "Path exists but is not a directory: %s", tmp);
+                return false;
+            }
+            *p = '/';
+        }
+    }
+
+    struct stat st;
+    if (stat(tmp, &st) != 0) {
+        if (mkdir(tmp, 0755) != 0) {
+            ESP_LOGE("WEBDAV", "Failed to create directory: %s (errno: %d)", tmp, errno);
+            return false;
+        }
+    } else if (!S_ISDIR(st.st_mode)) {
+        ESP_LOGE("WEBDAV", "Path exists but is not a directory: %s", tmp);
+        return false;
+    }
+
+    return true;
+}
 
 // Nouvelle fonction pour décoder les URL
 std::string url_decode(const std::string &src) {
