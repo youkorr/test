@@ -905,6 +905,7 @@ esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::
 }
 
 // Updated implementation of PUT handler
+// Updated implementation of PUT handler
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     std::string path = get_file_path(req, inst->root_path_);
@@ -926,7 +927,8 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         if (strcmp(expect_val, "100-continue") == 0) {
             ESP_LOGI(TAG, "Sending 100-continue response");
             httpd_resp_set_status(req, "100 Continue");
-            httpd_resp_send_chunk(req, "", 0);
+            httpd_resp_send(req, "", 0);
+            return ESP_OK;
         }
     }
     
@@ -957,7 +959,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
             struct stat dir_stat;
             if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
                 // Create parent directories recursively
-                create_directories(dir_path);
+                WebDAVBox3::create_directories(dir_path);
             }
         }
     }
@@ -1076,7 +1078,7 @@ bool WebDAVBox3::create_directories(const std::string& path) {
     len = strlen(tmp);
     
     // Remove trailing slash
-    if (tmp[len - 1] == '/') {
+    if (len > 0 && tmp[len - 1] == '/') {
         tmp[len - 1] = 0;
     }
     
