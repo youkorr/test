@@ -830,6 +830,40 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     
     return err;
 }
+float WebDAVBox3::benchmark_sd_read(const std::string &filepath) {
+    FILE *file = fopen(filepath.c_str(), "rb");
+    if (!file) {
+        ESP_LOGE(TAG, "Erreur ouverture %s", filepath.c_str());
+        return 0.0;
+    }
+
+    const size_t CHUNK = 8192;
+    char *buf = (char*)malloc(CHUNK);
+    if (!buf) {
+        fclose(file);
+        ESP_LOGE(TAG, "Erreur allocation mémoire");
+        return 0.0;
+    }
+
+    size_t total = 0;
+    size_t r = 0;
+    unsigned long start = esp_timer_get_time();
+
+    while ((r = fread(buf, 1, CHUNK, file)) > 0) {
+        total += r;
+    }
+
+    unsigned long end = esp_timer_get_time();
+    free(buf);
+    fclose(file);
+
+    float elapsed = (end - start) / 1e6f;
+    float mbps = (total / 1024.0f / 1024.0f) / elapsed;
+
+    ESP_LOGI(TAG, "Benchmark SD: %.2f MB lus en %.2f s (%.2f MB/s)", total / 1048576.0f, elapsed, mbps);
+    return mbps;
+}
+
 esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::string &path, size_t file_size) {
     // Cette méthode est pour les fichiers jusqu'à 8MB
     const size_t MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 Mo
