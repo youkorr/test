@@ -288,7 +288,256 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
 }
 
 // Remplacez la méthode handle_download actuelle par celle-ci
-
+void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &path) const {
+    AsyncResponseStream *response = request->beginResponseStream("text/html");
+    response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8><meta "
+                      "name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
+                      "<style>"
+                      "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }"
+                      "h1, h2 { color: #333; }"
+                      "table { width: 100%; border-collapse: collapse; margin-top: 20px; }"
+                      "th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }"
+                      "th { background-color: #f2f2f2; }"
+                      "tr:hover { background-color: #f5f5f5; }"
+                      "button { margin: 2px; padding: 5px 10px; background-color: #4CAF50; color: white; "
+                      "border: none; border-radius: 4px; cursor: pointer; }"
+                      "button:hover { background-color: #45a049; }"
+                      ".delete { background-color: #f44336; }"
+                      ".delete:hover { background-color: #d32f2f; }"
+                      "a { color: #2196F3; text-decoration: none; }"
+                      "a:hover { text-decoration: underline; }"
+                      ".upload-form { margin: 20px 0; padding: 15px; background-color: #f9f9f9; border-radius: 4px; }"
+                      ".info-section { margin: 20px 0; padding: 15px; background-color: #e8f5e9; border-radius: 4px; border-left: 5px solid #4CAF50; }"
+                      ".storage-stats { display: flex; margin: 10px 0; }"
+                      ".storage-bar { flex-grow: 1; height: 20px; background-color: #e0e0e0; border-radius: 10px; margin-right: 10px; position: relative; overflow: hidden; }"
+                      ".storage-used { height: 100%; background-color: #4CAF50; }"
+                      ".storage-text { flex-shrink: 0; }"
+                      ".tab-container { margin-top: 15px; }"
+                      ".tab { overflow: hidden; border: 1px solid #ccc; background-color: #f1f1f1; border-radius: 4px 4px 0 0; }"
+                      ".tab button { background-color: inherit; float: left; border: none; outline: none; cursor: pointer; padding: 10px 16px; transition: 0.3s; }"
+                      ".tab button:hover { background-color: #ddd; }"
+                      ".tab button.active { background-color: #4CAF50; color: white; }"
+                      ".tabcontent { display: none; padding: 15px; border: 1px solid #ccc; border-top: none; border-radius: 0 0 4px 4px; }"
+                      "</style>"
+                      "</head><body>"
+                      "<h1>SD Card Content</h1>"));
+    
+    // Nouvelle section d'information et statistiques de stockage
+    response->print(F("<div class=\"info-section\">"
+                      "<h2>Storage Information</h2>"));
+    
+    // Obtenir des statistiques sur le stockage si disponible
+    size_t total_space = 0;
+    size_t used_space = 0;
+    size_t free_space = 0;
+    
+    // Essayez d'obtenir des statistiques de stockage si la méthode existe
+    if (this->sd_mmc_card_->get_storage_stats) {
+        this->sd_mmc_card_->get_storage_stats(&total_space, &used_space, &free_space);
+    } else {
+        // Estimation approximative si non disponible
+        total_space = 8 * 1024 * 1024 * 1024; // 8GB par défaut
+        auto entries = this->sd_mmc_card_->list_directory_file_info(this->root_path_, 0);
+        for (auto const &entry : entries) {
+            if (!entry.is_directory) {
+                used_space += entry.size;
+            }
+        }
+        free_space = total_space - used_space;
+    }
+    
+    float used_percent = total_space > 0 ? (float)used_space / total_space * 100 : 0;
+    
+    // Afficher une barre de progression pour l'espace de stockage
+    response->print(F("<div class=\"storage-stats\">"
+                     "<div class=\"storage-bar\">"
+                     "<div class=\"storage-used\" style=\"width: "));
+    response->print(used_percent);
+    response->print(F("%\"></div></div>"
+                     "<div class=\"storage-text\">"));
+    response->print(used_space / (1024 * 1024));
+    response->print(F("MB / "));
+    response->print(total_space / (1024 * 1024));
+    response->print(F("MB ("));
+    response->print(used_percent);
+    response->print(F("%)</div></div>"));
+    
+    // Ajouter des boutons d'action rapide
+    response->print(F("<div class=\"quick-actions\">"
+                     "<button onClick=\"location.reload()\">Refresh</button> "));
+    if (this->upload_enabled_) {
+        response->print(F("<button onClick=\"document.getElementById('uploadTab').click()\">Upload Files</button> "));
+    }
+    response->print(F("</div></div>"));
+    
+    // Système d'onglets pour organiser le contenu
+    response->print(F("<div class=\"tab-container\">"
+                     "<div class=\"tab\">"
+                     "<button class=\"tablinks active\" onclick=\"openTab(event, 'FilesTab')\" id=\"defaultTab\">Files</button>"));
+    if (this->upload_enabled_) {
+        response->print(F("<button class=\"tablinks\" onclick=\"openTab(event, 'UploadTab')\" id=\"uploadTab\">Upload</button>"));
+    }
+    response->print(F("</div>"));
+    
+    // Onglet des fichiers
+    response->print(F("<div id=\"FilesTab\" class=\"tabcontent\" style=\"display:block;\">"));
+    
+    // Afficher le chemin actuel
+    response->print(F("<h2>Folder "));
+    response->print(path.c_str());
+    response->print(F("</h2>"));
+    
+    // Add breadcrumb navigation
+    std::string current_path = Path::remove_root_path(path, this->root_path_);
+    if (current_path != "/") {
+        response->print("<div class=\"breadcrumb\"><a href=\"/");
+        response->print(this->url_prefix_.c_str());
+        response->print("\">Home</a> / ");
+        std::vector<std::string> parts;
+        std::string part;
+        for (char c : current_path) {
+            if (c == '/') {
+                if (!part.empty()) {
+                    parts.push_back(part);
+                    part.clear();
+                }
+            } else {
+                part += c;
+            }
+        }
+        if (!part.empty()) {
+            parts.push_back(part);
+        }
+        std::string cumulative_path = "";
+        for (size_t i = 0; i < parts.size(); i++) {
+            cumulative_path += "/" + parts[i];
+            response->print("<a href=\"/");
+            response->print(this->url_prefix_.c_str());
+            response->print(cumulative_path.c_str());
+            response->print("\">");
+            response->print(parts[i].c_str());
+            response->print("</a>");
+            if (i < parts.size() - 1) {
+                response->print(" / ");
+            }
+        }
+        response->print("</div><br>");
+    }
+    
+    response->print(F("<table id=\"files\">"
+                      "<thead><tr>"
+                      "<th>Name</th>"
+                      "<th>Type</th>"
+                      "<th>Size</th>"
+                      "<th>Actions</th>"
+                      "</tr></thead><tbody>"));
+    auto entries = this->sd_mmc_card_->list_directory_file_info(path, 0);
+    for (auto const &entry : entries)
+        write_row(response, entry);
+    response->print(F("</tbody></table></div>"));
+    
+    // Onglet d'upload si activé
+    if (this->upload_enabled_) {
+        response->print(F("<div id=\"UploadTab\" class=\"tabcontent\">"
+                         "<h2>Upload Files</h2>"
+                         "<p>Select files to upload to the current directory:</p>"
+                         "<div class=\"upload-form\">"
+                         "<form method=\"POST\" enctype=\"multipart/form-data\" id=\"uploadForm\">"
+                         "<input type=\"file\" name=\"file\" multiple id=\"fileInput\">"
+                         "<div id=\"uploadProgress\" style=\"display:none; margin-top:10px;\">"
+                         "<div class=\"storage-bar\">"
+                         "<div id=\"progressBar\" class=\"storage-used\" style=\"width: 0%\"></div>"
+                         "</div>"
+                         "<div id=\"progressText\">0%</div>"
+                         "</div>"
+                         "<input type=\"submit\" value=\"Upload File(s)\">"
+                         "</form></div>"
+                         "</div>"));
+    }
+    
+    response->print(F("</div>"));
+    
+    response->print(F("<script>"
+                      "function openTab(evt, tabName) {"
+                      "  var i, tabcontent, tablinks;"
+                      "  tabcontent = document.getElementsByClassName('tabcontent');"
+                      "  for (i = 0; i < tabcontent.length; i++) {"
+                      "    tabcontent[i].style.display = 'none';"
+                      "  }"
+                      "  tablinks = document.getElementsByClassName('tablinks');"
+                      "  for (i = 0; i < tablinks.length; i++) {"
+                      "    tablinks[i].className = tablinks[i].className.replace(' active', '');"
+                      "  }"
+                      "  document.getElementById(tabName).style.display = 'block';"
+                      "  evt.currentTarget.className += ' active';"
+                      "}"
+                      "function delete_file(path) {"
+                      "  if(confirm('Are you sure you want to delete this file?')) {"
+                      "    fetch(path, {method: 'DELETE'})"
+                      "    .then(response => {"
+                      "      if(response.ok) {"
+                      "        alert('File deleted successfully');"
+                      "        location.reload();"
+                      "      } else {"
+                      "        alert('Error deleting file');"
+                      "      }"
+                      "    }).catch(error => {"
+                      "      alert('Error: ' + error);"
+                      "    });"
+                      "  }"
+                      "}"
+                      "function download_file(path, filename) {"
+                      "  fetch(path).then(response => response.blob())"
+                      "  .then(blob => {"
+                      "    const link = document.createElement('a');"
+                      "    link.href = URL.createObjectURL(blob);"
+                      "    link.download = filename;"
+                      "    link.click();"
+                      "  }).catch(error => {"
+                      "    alert('Error downloading file: ' + error);"
+                      "  });"
+                      "}"
+                      // Ajouter un gestionnaire pour l'upload avec barre de progression
+                      "if(document.getElementById('uploadForm')) {"
+                      "  document.getElementById('uploadForm').addEventListener('submit', function(e) {"
+                      "    e.preventDefault();"
+                      "    const fileInput = document.getElementById('fileInput');"
+                      "    if(fileInput.files.length === 0) {"
+                      "      alert('Please select at least one file');"
+                      "      return;"
+                      "    }"
+                      "    const formData = new FormData();"
+                      "    for(let i = 0; i < fileInput.files.length; i++) {"
+                      "      formData.append('file', fileInput.files[i]);"
+                      "    }"
+                      "    const xhr = new XMLHttpRequest();"
+                      "    xhr.open('POST', window.location.pathname);"
+                      "    document.getElementById('uploadProgress').style.display = 'block';"
+                      "    xhr.upload.addEventListener('progress', function(e) {"
+                      "      if(e.lengthComputable) {"
+                      "        const percentComplete = (e.loaded / e.total) * 100;"
+                      "        document.getElementById('progressBar').style.width = percentComplete + '%';"
+                      "        document.getElementById('progressText').textContent = Math.round(percentComplete) + '%';"
+                      "      }"
+                      "    });"
+                      "    xhr.addEventListener('load', function() {"
+                      "      if(xhr.status === 201) {"
+                      "        alert('Upload successful!');"
+                      "        location.reload();"
+                      "      } else {"
+                      "        alert('Upload failed: ' + xhr.statusText);"
+                      "      }"
+                      "    });"
+                      "    xhr.addEventListener('error', function() {"
+                      "      alert('Upload failed');"
+                      "    });"
+                      "    xhr.send(formData);"
+                      "  });"
+                      "}"
+                      "</script>"
+                      "</body></html>"));
+    request->send(response);
+}
 void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const &path) const {
     if (!this->download_enabled_) {
         request->send(401, "application/json", "{ \"error\": \"file download is disabled\" }");
@@ -316,10 +565,28 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     
     // Utiliser un stream ou un fichier selon la plateforme
 #ifdef USE_ESP_IDF
-    // Pour ESP-IDF, utiliser AsyncFileResponse qui est plus optimisé pour les gros fichiers
-    response = new AsyncFileResponse(this->sd_mmc_card_->get_file_path(path).c_str(), 
-                                     content_type.c_str(), 
-                                     true);
+    // Pour ESP-IDF, s'assurer d'inclure le bon header pour AsyncFileResponse
+    #include <ESPAsyncWebServer.h>
+    // Si AsyncFileResponse n'est toujours pas disponible, revenir à la méthode basée sur le chunk
+    std::string file_path = this->sd_mmc_card_->get_file_path(path);
+    if (file_path.empty()) {
+        request->send(404, "application/json", "{ \"error\": \"failed to get file path\" }");
+        return;
+    }
+    response = request->beginChunkedResponse(content_type.c_str(), 
+        [this, path, fileSize](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+            // Calculer la taille du chunk à lire
+            size_t chunkSize = std::min(maxLen, fileSize - index);
+            if (chunkSize == 0) return 0; // Fin du fichier
+            
+            // Lire un morceau du fichier
+            std::vector<uint8_t> chunk = this->sd_mmc_card_->read_file_chunk(path, index, chunkSize);
+            if (chunk.size() == 0) return 0;
+            
+            // Copier les données dans le buffer
+            memcpy(buffer, chunk.data(), chunk.size());
+            return chunk.size();
+        });
 #else
     // Si le fichier est trop grand, utiliser un buffer de streaming
     static const size_t MAX_BUFFER_SIZE = 8192; // Taille du buffer: 8Ko
@@ -367,7 +634,6 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     // Envoyer la réponse
     request->send(response);
 }
-
 void Box3Web::handle_delete(AsyncWebServerRequest *request) {
     if (!this->deletion_enabled_) {
         request->send(401, "application/json", "{ \"error\": \"file deletion is disabled\" }");
