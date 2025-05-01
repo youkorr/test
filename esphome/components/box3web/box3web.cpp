@@ -211,45 +211,7 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
                       "</head><body>"
                       "<h1>SD Card Content</h1>"));
     
-    // Nouvelle section d'information et statistiques de stockage
-    response->print(F("<div class=\"info-section\">"
-                      "<h2>Storage Information</h2>"));
-    
-    // Obtenir des statistiques sur le stockage si disponible
-    size_t total_space = 0;
-    size_t used_space = 0;
-    size_t free_space = 0;
-    
-    // Essayez d'obtenir des statistiques de stockage si la méthode existe
-    if (this->sd_mmc_card_->get_storage_stats) {
-        this->sd_mmc_card_->get_storage_stats(&total_space, &used_space, &free_space);
-    } else {
-        // Estimation approximative si non disponible
-        total_space = 8 * 1024 * 1024 * 1024; // 8GB par défaut
-        auto entries = this->sd_mmc_card_->list_directory_file_info(this->root_path_, 0);
-        for (auto const &entry : entries) {
-            if (!entry.is_directory) {
-                used_space += entry.size;
-            }
-        }
-        free_space = total_space - used_space;
-    }
-    
-    float used_percent = total_space > 0 ? (float)used_space / total_space * 100 : 0;
-    
-    // Afficher une barre de progression pour l'espace de stockage
-    response->print(F("<div class=\"storage-stats\">"
-                     "<div class=\"storage-bar\">"
-                     "<div class=\"storage-used\" style=\"width: "));
-    response->print(used_percent);
-    response->print(F("%\"></div></div>"
-                     "<div class=\"storage-text\">"));
-    response->print(used_space / (1024 * 1024));
-    response->print(F("MB / "));
-    response->print(total_space / (1024 * 1024));
-    response->print(F("MB ("));
-    response->print(used_percent);
-    response->print(F("%)</div></div>"));
+
     
     // Ajouter des boutons d'action rapide
     response->print(F("<div class=\"quick-actions\">"
