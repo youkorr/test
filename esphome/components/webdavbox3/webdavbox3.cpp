@@ -956,84 +956,106 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     std::string path = get_file_path(req, inst->root_path_);
 
-    // Print headers
     ESP_LOGI(TAG, "===== PUT REQUEST HEADERS =====");
-    char transfer_encoding[64] = {0};
+
+    // Vérification Expect: 100-continue
+    char expect_val[64] = {0};
+    if (httpd_req_get_hdr_value_len(req, "Expect") > 0) {
+        httpd_req_get_hdr_value_str(req, "Expect", expect_val, sizeof(expect_val));
+        if (strcasecmp(expect_val, "100-continue") == 0) {
+            ESP_LOGI(TAG, "Sending 100-continue response");
+            httpd_resp_set_status(req, "100 Continue");
+            httpd_resp_send(req, "", 0);
+            // continue quand même l’exécution
+        }
+    }
+
+    // Détection du mode chunked
     bool is_chunked = false;
+    char transfer_encoding[64] = {0};
     if (httpd_req_get_hdr_value_len(req, "Transfer-Encoding") > 0) {
         httpd_req_get_hdr_value_str(req, "Transfer-Encoding", transfer_encoding, sizeof(transfer_encoding));
-        is_chunked = (strncasecmp(transfer_encoding, "chunked", 7) == 0);
-        ESP_LOGI(TAG, "Transfer-Encoding: %s", transfer_encoding);
+        if (strcasecmp(transfer_encoding, "chunked") == 0) {
+            is_chunked = true;
+        }
     }
 
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
     ESP_LOGI(TAG, "Content length: %d bytes", req->content_len);
 
-    // Directory check
+    // Ne pas écraser un dossier
     struct stat st;
     if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Cannot overwrite a directory");
+        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Cannot overwrite directory");
     }
 
+    // Création récursive du dossier parent
     size_t last_slash = path.find_last_of('/');
     if (last_slash != std::string::npos) {
         std::string dir_path = path.substr(0, last_slash);
         struct stat dir_stat;
         if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
-            create_directories_util(dir_path);
+            if (!create_directories_util(dir_path)) {
+                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create parent directory");
+            }
         }
     }
 
+    // Ouverture du fichier en écriture
     FILE *file = fopen(path.c_str(), "wb");
     if (!file) {
+        ESP_LOGE(TAG, "Cannot open file: %s (errno=%d)", path.c_str(), errno);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
     }
 
-    char buffer[1024];
+    // Lecture des données
+    char buffer[4096];
     int total_received = 0;
+    int timeout_count = 0;
 
-    if (is_chunked) {
-        while (true) {
-            char chunk_size_str[16] = {0};
-            int len = httpd_req_recv(req, chunk_size_str, sizeof(chunk_size_str) - 1);
-            if (len <= 0) break;
-            int chunk_size = strtol(chunk_size_str, nullptr, 16);
-            if (chunk_size == 0) {
-                char end[2];
-                httpd_req_recv(req, end, 2); // 
+    while (true) {
+        int received = httpd_req_recv(req, buffer, sizeof(buffer));
 
-                break;
+        if (received < 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                if (++timeout_count >= 5) {
+                    ESP_LOGE(TAG, "Too many timeouts, aborting");
+                    fclose(file);
+                    return httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Timeout");
+                }
+                continue;
+            } else {
+                ESP_LOGE(TAG, "Socket error: %d", received);
+                fclose(file);
+                unlink(path.c_str());
+                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Socket error");
             }
-
-            int remaining = chunk_size;
-            while (remaining > 0) {
-                int to_read = (remaining > sizeof(buffer)) ? sizeof(buffer) : remaining;
-                int r = httpd_req_recv(req, buffer, to_read);
-                if (r <= 0) break;
-                fwrite(buffer, 1, r, file);
-                remaining -= r;
-                total_received += r;
-            }
-
-            char crlf[2];
-            httpd_req_recv(req, crlf, 2); // skip trailing \r\n
         }
-    } else {
-        while (total_received < req->content_len) {
-            int r = httpd_req_recv(req, buffer, sizeof(buffer));
-            if (r <= 0) break;
-            fwrite(buffer, 1, r, file);
-            total_received += r;
+
+        if (received == 0) {
+            ESP_LOGI(TAG, "End of data stream");
+            break;
         }
+
+        size_t written = fwrite(buffer, 1, received, file);
+        if (written != received) {
+            ESP_LOGE(TAG, "Write error: wrote %zu / %d", written, received);
+            fclose(file);
+            unlink(path.c_str());
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error");
+        }
+
+        total_received += received;
     }
 
     fclose(file);
+    ESP_LOGI(TAG, "✅ Upload complete: %s (%d bytes)", path.c_str(), total_received);
 
-    ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
+    // Réponse HTTP
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "DAV", "1,2");
-    httpd_resp_set_status(req, "201 Created");
     httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_status(req, total_received > 0 ? "201 Created" : "200 OK");
     return httpd_resp_sendstr(req, "");
 }
 
