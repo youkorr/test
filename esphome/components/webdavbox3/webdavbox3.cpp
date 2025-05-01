@@ -958,7 +958,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
             struct stat dir_stat;
             if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
                 // Create parent directories recursively using the standalone utility function
-                create_directories_util(dir_path);
+                WebDAVBox3::create_directories(dir_path);
             }
         }
     }
