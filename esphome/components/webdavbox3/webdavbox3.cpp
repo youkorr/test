@@ -20,6 +20,8 @@
 namespace esphome {
 namespace webdavbox3 {
 
+bool create_directories_util(const std::string &path);
+
 static const char *const TAG = "webdavbox3";
 
 // Nouvelle fonction pour décoder les URL
