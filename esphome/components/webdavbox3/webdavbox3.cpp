@@ -958,6 +958,15 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
 
     ESP_LOGI(TAG, "===== PUT REQUEST HEADERS =====");
 
+    char expect_hdr[32];
+    if (httpd_req_get_hdr_value_str(req, "Expect", expect_hdr, sizeof(expect_hdr)) == ESP_OK) {
+        if (strcasecmp(expect_hdr, "100-continue") == 0) {
+            ESP_LOGI(TAG, "Client expects 100-continue");
+            httpd_resp_set_status(req, "100 Continue");
+            httpd_resp_send(req, NULL, 0);  // Send empty body
+        }
+    }
+
     // Vérification Expect: 100-continue
     char expect_val[64] = {0};
     if (httpd_req_get_hdr_value_len(req, "Expect") > 0) {
