@@ -71,6 +71,7 @@ class WebDAVBox3 : public Component {
   static esp_err_t handle_webdav_unlock(httpd_req_t *req);
   static esp_err_t handle_webdav_proppatch(httpd_req_t *req);
   static esp_err_t handle_post(httpd_req_t *req);
+  static bool create_directories(const std::string& path);
   
   // Helper methods
   static std::string get_file_path(httpd_req_t *req, const std::string &root_path);
