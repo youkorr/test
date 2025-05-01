@@ -904,217 +904,94 @@ esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::
     return ret;
 }
 
-// Updated implementation of PUT handler
+// Corrected PUT handler with chunked transfer support
 static bool create_directories_util(const std::string& path);
 
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     std::string path = get_file_path(req, inst->root_path_);
-    
-    // Print all headers for diagnostics
+
+    // Print headers
     ESP_LOGI(TAG, "===== PUT REQUEST HEADERS =====");
-    int headers_count = httpd_req_get_hdr_value_len(req, "Content-Length") > 0 ? 1 : 0;
-    headers_count += httpd_req_get_hdr_value_len(req, "Expect") > 0 ? 1 : 0;
-    headers_count += httpd_req_get_hdr_value_len(req, "Transfer-Encoding") > 0 ? 1 : 0;
-    ESP_LOGI(TAG, "Found %d important headers", headers_count);
-    
-    // Check for Expect: 100-continue header
-    char expect_val[64] = {0};
-    if (httpd_req_get_hdr_value_len(req, "Expect") > 0) {
-        httpd_req_get_hdr_value_str(req, "Expect", expect_val, sizeof(expect_val));
-        ESP_LOGI(TAG, "Expect header: %s", expect_val);
-        
-        // If client is expecting 100-continue, send it before receiving body
-        if (strcmp(expect_val, "100-continue") == 0) {
-            ESP_LOGI(TAG, "Sending 100-continue response");
-            httpd_resp_set_status(req, "100 Continue");
-            httpd_resp_send(req, "", 0);
-            return ESP_OK;
-        }
-    }
-    
-    // Check for Transfer-Encoding header
-    bool is_chunked = false;
     char transfer_encoding[64] = {0};
+    bool is_chunked = false;
     if (httpd_req_get_hdr_value_len(req, "Transfer-Encoding") > 0) {
         httpd_req_get_hdr_value_str(req, "Transfer-Encoding", transfer_encoding, sizeof(transfer_encoding));
-        ESP_LOGI(TAG, "Transfer-Encoding: %s", transfer_encoding);
         is_chunked = (strncasecmp(transfer_encoding, "chunked", 7) == 0);
+        ESP_LOGI(TAG, "Transfer-Encoding: %s", transfer_encoding);
     }
-    
+
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
     ESP_LOGI(TAG, "Content length: %d bytes", req->content_len);
-    
-    // Check if it's a directory
+
+    // Directory check
     struct stat st;
     if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-        ESP_LOGE(TAG, "Cannot overwrite a directory: %s", path.c_str());
-        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
+        return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Cannot overwrite a directory");
     }
-    
-    // Make sure parent directory exists
+
     size_t last_slash = path.find_last_of('/');
     if (last_slash != std::string::npos) {
         std::string dir_path = path.substr(0, last_slash);
-        if (!dir_path.empty()) {
-            struct stat dir_stat;
-            if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
-                // Create parent directories recursively using the standalone utility function
-                create_directories_util(dir_path);
-            }
+        struct stat dir_stat;
+        if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
+            create_directories_util(dir_path);
         }
     }
 
-    bool is_preliminary_request = false;
-    
-    // Handle zero-length content as a preliminary request
-    if (req->content_len == 0 && !is_chunked) {
-        ESP_LOGI(TAG, "Zero content length detected, this may be a preliminary request");
-        is_preliminary_request = true;
-        
-        // Create an empty file (or truncate existing)
-        FILE *file = fopen(path.c_str(), "wb");
-        if (!file) {
-            ESP_LOGE(TAG, "Failed to open file for writing: %s (errno: %d)", path.c_str(), errno);
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-        }
-        fclose(file);
-    } else {
-        // Normal case with content
-        FILE *file = fopen(path.c_str(), "wb");
-        if (!file) {
-            ESP_LOGE(TAG, "Failed to open file for writing: %s (errno: %d)", path.c_str(), errno);
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-        }
-        
-        int total_received = 0;
-        char buffer[4096];
-        int recv_timeout_count = 0;
-        const int MAX_TIMEOUTS = 5;
-        
-        // Loop to read all data
+    FILE *file = fopen(path.c_str(), "wb");
+    if (!file) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+    }
+
+    char buffer[1024];
+    int total_received = 0;
+
+    if (is_chunked) {
         while (true) {
-            int received = httpd_req_recv(req, buffer, sizeof(buffer));
-            
-            if (received < 0) {
-                if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                    ESP_LOGW(TAG, "Socket timeout (%d/%d), retrying...", ++recv_timeout_count, MAX_TIMEOUTS);
-                    if (recv_timeout_count >= MAX_TIMEOUTS) {
-                        ESP_LOGE(TAG, "Too many timeouts, aborting");
-                        fclose(file);
-                        // Don't delete the file on timeout - it might be partially valid
-                        return httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Request timed out");
-                    }
-                    continue;
-                }
-                
-                ESP_LOGE(TAG, "Socket error: %d", received);
-                fclose(file);
-                unlink(path.c_str());
-                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Socket error");
-            }
-            
-            // Reset timeout counter when we receive data
-            recv_timeout_count = 0;
-            
-            // No more data
-            if (received == 0) {
-                ESP_LOGI(TAG, "End of data");
+            char chunk_size_str[16] = {0};
+            int len = httpd_req_recv(req, chunk_size_str, sizeof(chunk_size_str) - 1);
+            if (len <= 0) break;
+            int chunk_size = strtol(chunk_size_str, nullptr, 16);
+            if (chunk_size == 0) {
+                char end[2];
+                httpd_req_recv(req, end, 2); // 
+
                 break;
             }
-            
-            // Log data chunks but avoid spamming logs
-            if (total_received == 0 || (total_received % (1024*1024) < received)) {
-                ESP_LOGI(TAG, "Received %d bytes (total so far: %d bytes)", received, total_received + received);
+
+            int remaining = chunk_size;
+            while (remaining > 0) {
+                int to_read = (remaining > sizeof(buffer)) ? sizeof(buffer) : remaining;
+                int r = httpd_req_recv(req, buffer, to_read);
+                if (r <= 0) break;
+                fwrite(buffer, 1, r, file);
+                remaining -= r;
+                total_received += r;
             }
-            
-            // Write received data to file
-            size_t written = fwrite(buffer, 1, received, file);
-            if (written != received) {
-                ESP_LOGE(TAG, "Write error: %zu/%d", written, received);
-                fclose(file);
-                unlink(path.c_str());
-                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error");
-            }
-            
-            total_received += received;
-            
-            // If not chunked and we've read all expected data, break
-            if (!is_chunked && req->content_len > 0 && total_received >= req->content_len) {
-                ESP_LOGI(TAG, "Received exactly expected content length: %d bytes", total_received);
-                break;
-            }
+
+            char crlf[2];
+            httpd_req_recv(req, crlf, 2); // skip trailing \r\n
         }
-        
-        fclose(file);
-        
-        ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
-    }
-    
-    // Send response
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    // Set proper WebDAV headers
-    httpd_resp_set_hdr(req, "DAV", "1,2");
-    
-    if (!is_preliminary_request) {
-        // If we actually received data, it's a creation
-        httpd_resp_set_status(req, "201 Created");
     } else {
-        // Otherwise it's just OK
-        httpd_resp_set_status(req, "200 OK");
+        while (total_received < req->content_len) {
+            int r = httpd_req_recv(req, buffer, sizeof(buffer));
+            if (r <= 0) break;
+            fwrite(buffer, 1, r, file);
+            total_received += r;
+        }
     }
-    
+
+    fclose(file);
+
+    ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "DAV", "1,2");
+    httpd_resp_set_status(req, "201 Created");
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "");
 }
-bool create_directories_util(const std::string& path) {
-    char tmp[256];
-    char *p = NULL;
-    size_t len;
-    
-    snprintf(tmp, sizeof(tmp), "%s", path.c_str());
-    len = strlen(tmp);
-    
-    // Remove trailing slash
-    if (len > 0 && tmp[len - 1] == '/') {
-        tmp[len - 1] = 0;
-    }
-    
-    // Create each directory in the path
-    for (p = tmp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = 0;
-            
-            // Create the directory if it doesn't exist
-            struct stat st;
-            if (stat(tmp, &st) != 0) {
-                if (mkdir(tmp, 0755) != 0) {
-                    ESP_LOGE("WEBDAV", "Failed to create directory: %s (errno: %d)", tmp, errno);
-                    return false;
-                }
-            } else if (!S_ISDIR(st.st_mode)) {
-                ESP_LOGE("WEBDAV", "Path exists but is not a directory: %s", tmp);
-                return false;
-            }
-            
-            *p = '/';
-        }
-    }
-    
-    // Create the final directory
-    struct stat st;
-    if (stat(tmp, &st) != 0) {
-        if (mkdir(tmp, 0755) != 0) {
-            ESP_LOGE("WEBDAV", "Failed to create directory: %s (errno: %d)", tmp, errno);
-            return false;
-        }
-    } else if (!S_ISDIR(st.st_mode)) {
-        ESP_LOGE("WEBDAV", "Path exists but is not a directory: %s", tmp);
-        return false;
-    }
-    
-    return true;
-}
+
 esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
   std::string path = get_file_path(req, inst->root_path_);
