@@ -738,7 +738,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
     
     // Configurer les en-têtes de la réponse
     httpd_resp_set_type(req, content_type);
-    httpd_resp_set_hdr(req, "Content-Length", std::to_string(st.st_size).c_str());
+    //httpd_resp_set_hdr(req, "Content-Length", std::to_string(st.st_size).c_str());
     httpd_resp_set_hdr(req, "Accept-Ranges", "bytes");
     
     ESP_LOGI(TAG, "Envoi du fichier %s (%zu octets, type: %s)", path.c_str(), (size_t)st.st_size, content_type);
