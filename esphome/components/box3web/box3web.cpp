@@ -287,35 +287,84 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
     request->send(response);
 }
 
+// Remplacez la méthode handle_download actuelle par celle-ci
+
 void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const &path) const {
     if (!this->download_enabled_) {
         request->send(401, "application/json", "{ \"error\": \"file download is disabled\" }");
         return;
     }
-    auto file = this->sd_mmc_card_->read_file(path);
-    if (file.size() == 0) {
-        request->send(404, "application/json", "{ \"error\": \"failed to read file or file is empty\" }");
+    
+    // Vérifier si le fichier existe
+    if (!this->sd_mmc_card_->exists(path)) {
+        request->send(404, "application/json", "{ \"error\": \"file not found\" }");
         return;
     }
+    
+    // Récupérer la taille du fichier sans charger son contenu
+    size_t fileSize = this->sd_mmc_card_->get_file_size(path);
+    if (fileSize == 0) {
+        request->send(404, "application/json", "{ \"error\": \"file is empty\" }");
+        return;
+    }
+    
     String content_type = get_content_type(path);
+    std::string filename = Path::file_name(path);
+    
+    // Créer une réponse basée sur un fichier au lieu de charger tout en mémoire
+    AsyncWebServerResponse *response = nullptr;
+    
+    // Utiliser un stream ou un fichier selon la plateforme
 #ifdef USE_ESP_IDF
-    auto *response = request->beginResponse_P(200, content_type.c_str(), file.data(), file.size());
-    if (content_type == "audio/mpeg" || content_type == "audio/wav" ||
-        content_type == "video/mp4" || startsWith(content_type.c_str(), "image/")) {
-        response->addHeader("Accept-Ranges", "bytes");
-    }
-    std::string filename = Path::file_name(path);
-    response->addHeader("Content-Disposition", ("inline; filename=\"" + String(filename.c_str()) + "\"").c_str());
+    // Pour ESP-IDF, utiliser AsyncFileResponse qui est plus optimisé pour les gros fichiers
+    response = new AsyncFileResponse(this->sd_mmc_card_->get_file_path(path).c_str(), 
+                                     content_type.c_str(), 
+                                     true);
 #else
-    auto *response = request->beginResponseStream(content_type.c_str(), file.size());
+    // Si le fichier est trop grand, utiliser un buffer de streaming
+    static const size_t MAX_BUFFER_SIZE = 8192; // Taille du buffer: 8Ko
+    
+    if (fileSize <= MAX_BUFFER_SIZE) {
+        // Pour les petits fichiers, on peut les charger en mémoire
+        auto fileData = this->sd_mmc_card_->read_file(path);
+        if (fileData.size() == 0) {
+            request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
+            return;
+        }
+        response = request->beginResponse_P(200, content_type.c_str(), fileData.data(), fileData.size());
+    } else {
+        // Pour les gros fichiers, utiliser un stream
+        response = request->beginChunkedResponse(content_type.c_str(), 
+            [this, path, fileSize](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+                // Calculer la taille du chunk à lire
+                size_t chunkSize = std::min(maxLen, fileSize - index);
+                if (chunkSize == 0) return 0; // Fin du fichier
+                
+                // Lire un morceau du fichier
+                std::vector<uint8_t> chunk = this->sd_mmc_card_->read_file_chunk(path, index, chunkSize);
+                if (chunk.size() == 0) return 0;
+                
+                // Copier les données dans le buffer
+                memcpy(buffer, chunk.data(), chunk.size());
+                return chunk.size();
+            });
+    }
+#endif
+
+    // Ajouter les headers nécessaires
     if (content_type == "audio/mpeg" || content_type == "audio/wav" ||
         content_type == "video/mp4" || startsWith(content_type.c_str(), "image/")) {
         response->addHeader("Accept-Ranges", "bytes");
     }
-    std::string filename = Path::file_name(path);
-    response->addHeader("Content-Disposition", ("inline; filename=\"" + String(filename.c_str()) + "\"").c_str());
-    response->write(file.data(), file.size());
-#endif
+    
+    response->addHeader("Content-Disposition", 
+                        ("inline; filename=\"" + String(filename.c_str()) + "\"").c_str());
+    
+    // Ajouter d'autres headers pour améliorer la stabilité
+    response->addHeader("Connection", "close");
+    response->addHeader("Cache-Control", "no-cache");
+    
+    // Envoyer la réponse
     request->send(response);
 }
 
