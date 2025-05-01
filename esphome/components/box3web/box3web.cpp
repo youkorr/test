@@ -566,7 +566,7 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     // Utiliser un stream ou un fichier selon la plateforme
 #ifdef USE_ESP_IDF
     // Pour ESP-IDF, s'assurer d'inclure le bon header pour AsyncFileResponse
-    #include <ESPAsyncWebServer.h>
+    //#include <ESPAsyncWebServer.h>
     // Si AsyncFileResponse n'est toujours pas disponible, revenir à la méthode basée sur le chunk
     std::string file_path = this->sd_mmc_card_->get_file_path(path);
     if (file_path.empty()) {
