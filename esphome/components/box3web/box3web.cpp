@@ -287,8 +287,7 @@ void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &pa
     request->send(response);
 }
 
-// Remplacez la méthode handle_download actuelle par celle-ci
-void Box3Web::handle_index(AsyncWebServerRequest *request, std::string const &path) const {
+
     AsyncResponseStream *response = request->beginResponseStream("text/html");
     response->print(F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=UTF-8><meta "
                       "name=viewport content=\"width=device-width, initial-scale=1,user-scalable=no\">"
