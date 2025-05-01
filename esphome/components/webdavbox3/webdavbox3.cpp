@@ -905,7 +905,6 @@ esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::
 }
 
 // Updated implementation of PUT handler
-// Updated implementation of PUT handler
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     std::string path = get_file_path(req, inst->root_path_);
@@ -958,8 +957,8 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         if (!dir_path.empty()) {
             struct stat dir_stat;
             if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
-                // Create parent directories recursively
-                WebDAVBox3::create_directories(dir_path);
+                // Create parent directories recursively using the standalone utility function
+                create_directories_util(dir_path);
             }
         }
     }
@@ -1066,10 +1065,7 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_sendstr(req, "");
 }
-
-// Implementation of helper function to create directories recursively
-// Add this function to your .cpp file
-bool WebDAVBox3::create_directories(const std::string& path) {
+bool create_directories_util(const std::string& path) {
     char tmp[256];
     char *p = NULL;
     size_t len;
@@ -1091,11 +1087,11 @@ bool WebDAVBox3::create_directories(const std::string& path) {
             struct stat st;
             if (stat(tmp, &st) != 0) {
                 if (mkdir(tmp, 0755) != 0) {
-                    ESP_LOGE(TAG, "Failed to create directory: %s (errno: %d)", tmp, errno);
+                    ESP_LOGE("WEBDAV", "Failed to create directory: %s (errno: %d)", tmp, errno);
                     return false;
                 }
             } else if (!S_ISDIR(st.st_mode)) {
-                ESP_LOGE(TAG, "Path exists but is not a directory: %s", tmp);
+                ESP_LOGE("WEBDAV", "Path exists but is not a directory: %s", tmp);
                 return false;
             }
             
@@ -1107,11 +1103,11 @@ bool WebDAVBox3::create_directories(const std::string& path) {
     struct stat st;
     if (stat(tmp, &st) != 0) {
         if (mkdir(tmp, 0755) != 0) {
-            ESP_LOGE(TAG, "Failed to create directory: %s (errno: %d)", tmp, errno);
+            ESP_LOGE("WEBDAV", "Failed to create directory: %s (errno: %d)", tmp, errno);
             return false;
         }
     } else if (!S_ISDIR(st.st_mode)) {
-        ESP_LOGE(TAG, "Path exists but is not a directory: %s", tmp);
+        ESP_LOGE("WEBDAV", "Path exists but is not a directory: %s", tmp);
         return false;
     }
     
