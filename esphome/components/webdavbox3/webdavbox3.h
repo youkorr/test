@@ -26,6 +26,7 @@ class WebDAVBox3 : public Component {
   void enable_authentication(bool enabled) { auth_enabled_ = enabled; }
   void add_cors_headers(httpd_req_t *req);
   void register_handlers();
+  float benchmark_sd_read(const std::string &filepath);
 
   bool mount_sd_card();  // Ajout de ta fonction publique
 
