@@ -28,7 +28,7 @@ class WebDAVBox3 : public Component {
   void register_handlers();
   float benchmark_sd_read(const std::string &filepath);
   
-  bool create_directories(const std::string& path);
+  
   bool mount_sd_card();  // Ajout de ta fonction publique
 
  protected:
