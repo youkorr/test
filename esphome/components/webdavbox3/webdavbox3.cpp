@@ -702,7 +702,7 @@ esp_err_t WebDAVBox3::handle_webdav_get(httpd_req_t *req) {
         setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt));
         
         // Augmenter considérablement la taille du tampon d'envoi pour les gros fichiers
-        int send_buf = 512 * 1024;  // 128KB pour maximiser le débit
+        int send_buf = 256 * 1024;  // 128KB pour maximiser le débit
         setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &send_buf, sizeof(send_buf));
         
         // Timeouts beaucoup plus longs pour les gros fichiers
