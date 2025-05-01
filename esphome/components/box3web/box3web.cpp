@@ -561,19 +561,21 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     std::string filename = Path::file_name(path);
     
     // Pour ESP-IDF, nous devons éviter beginChunkedResponse et read_file_chunk
-    // Charger le fichier entier en mémoire (ou par parties si c'est trop grand)
+    // Charger le fichier entier en mémoire
     std::vector<uint8_t> fileData = this->sd_mmc_card_->read_file(path);
     if (fileData.size() == 0) {
         request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
         return;
     }
     
-    // Utiliser beginResponse au lieu de beginChunkedResponse
+    // Convertir le vecteur d'octets en std::string pour la compatibilité avec beginResponse
+    std::string fileContent(fileData.begin(), fileData.end());
+    
+    // Utiliser la version de beginResponse qui accepte une std::string
     AsyncWebServerResponse *response = request->beginResponse(
         200,                   // HTTP status code
         content_type.c_str(),  // Content type
-        (const char*)fileData.data(),  // Données
-        fileData.size()        // Taille
+        fileContent            // Contenu du fichier en tant que std::string
     );
     
     // Ajouter les headers nécessaires
