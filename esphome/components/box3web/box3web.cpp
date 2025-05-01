@@ -560,64 +560,22 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     String content_type = get_content_type(path);
     std::string filename = Path::file_name(path);
     
-    // Créer une réponse basée sur un fichier au lieu de charger tout en mémoire
-    AsyncWebServerResponse *response = nullptr;
-    
-    // Utiliser un stream ou un fichier selon la plateforme
-#ifdef USE_ESP_IDF
-    // Pour ESP-IDF, s'assurer d'inclure le bon header pour AsyncFileResponse
-    #include <ESPAsyncWebServer.h>
-    // Si AsyncFileResponse n'est toujours pas disponible, revenir à la méthode basée sur le chunk
-    std::string file_path = this->sd_mmc_card_->get_file_path(path);
-    if (file_path.empty()) {
-        request->send(404, "application/json", "{ \"error\": \"failed to get file path\" }");
+    // Pour ESP-IDF, nous devons éviter beginChunkedResponse et read_file_chunk
+    // Charger le fichier entier en mémoire (ou par parties si c'est trop grand)
+    std::vector<uint8_t> fileData = this->sd_mmc_card_->read_file(path);
+    if (fileData.size() == 0) {
+        request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
         return;
     }
-    response = request->beginChunkedResponse(content_type.c_str(), 
-        [this, path, fileSize](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-            // Calculer la taille du chunk à lire
-            size_t chunkSize = std::min(maxLen, fileSize - index);
-            if (chunkSize == 0) return 0; // Fin du fichier
-            
-            // Lire un morceau du fichier
-            std::vector<uint8_t> chunk = this->sd_mmc_card_->read_file_chunk(path, index, chunkSize);
-            if (chunk.size() == 0) return 0;
-            
-            // Copier les données dans le buffer
-            memcpy(buffer, chunk.data(), chunk.size());
-            return chunk.size();
-        });
-#else
-    // Si le fichier est trop grand, utiliser un buffer de streaming
-    static const size_t MAX_BUFFER_SIZE = 8192; // Taille du buffer: 8Ko
     
-    if (fileSize <= MAX_BUFFER_SIZE) {
-        // Pour les petits fichiers, on peut les charger en mémoire
-        auto fileData = this->sd_mmc_card_->read_file(path);
-        if (fileData.size() == 0) {
-            request->send(404, "application/json", "{ \"error\": \"failed to read file\" }");
-            return;
-        }
-        response = request->beginResponse_P(200, content_type.c_str(), fileData.data(), fileData.size());
-    } else {
-        // Pour les gros fichiers, utiliser un stream
-        response = request->beginChunkedResponse(content_type.c_str(), 
-            [this, path, fileSize](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-                // Calculer la taille du chunk à lire
-                size_t chunkSize = std::min(maxLen, fileSize - index);
-                if (chunkSize == 0) return 0; // Fin du fichier
-                
-                // Lire un morceau du fichier
-                std::vector<uint8_t> chunk = this->sd_mmc_card_->read_file_chunk(path, index, chunkSize);
-                if (chunk.size() == 0) return 0;
-                
-                // Copier les données dans le buffer
-                memcpy(buffer, chunk.data(), chunk.size());
-                return chunk.size();
-            });
-    }
-#endif
-
+    // Utiliser beginResponse au lieu de beginChunkedResponse
+    AsyncWebServerResponse *response = request->beginResponse(
+        200,                   // HTTP status code
+        content_type.c_str(),  // Content type
+        (const char*)fileData.data(),  // Données
+        fileData.size()        // Taille
+    );
+    
     // Ajouter les headers nécessaires
     if (content_type == "audio/mpeg" || content_type == "audio/wav" ||
         content_type == "video/mp4" || startsWith(content_type.c_str(), "image/")) {
@@ -625,7 +583,7 @@ void Box3Web::handle_download(AsyncWebServerRequest *request, std::string const 
     }
     
     response->addHeader("Content-Disposition", 
-                        ("inline; filename=\"" + String(filename.c_str()) + "\"").c_str());
+                       ("inline; filename=\"" + String(filename.c_str()) + "\"").c_str());
     
     // Ajouter d'autres headers pour améliorer la stabilité
     response->addHeader("Connection", "close");
