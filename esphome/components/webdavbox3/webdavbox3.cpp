@@ -925,16 +925,17 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         if (strcmp(expect_val, "100-continue") == 0) {
             ESP_LOGI(TAG, "Sending 100-continue response");
             httpd_resp_set_status(req, "100 Continue");
-            httpd_resp_sendstr_chunk(req, "");
-            httpd_resp_sendstr_chunk(req, NULL); // End chunked response
+            httpd_resp_send_chunk(req, "", 0);
         }
     }
     
     // Check for Transfer-Encoding header
+    bool is_chunked = false;
     char transfer_encoding[64] = {0};
     if (httpd_req_get_hdr_value_len(req, "Transfer-Encoding") > 0) {
         httpd_req_get_hdr_value_str(req, "Transfer-Encoding", transfer_encoding, sizeof(transfer_encoding));
         ESP_LOGI(TAG, "Transfer-Encoding: %s", transfer_encoding);
+        is_chunked = (strncasecmp(transfer_encoding, "chunked", 7) == 0);
     }
     
     ESP_LOGI(TAG, "PUT %s (URI: %s)", path.c_str(), req->uri);
@@ -947,10 +948,25 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "Method Not Allowed");
     }
     
-    // Implement multi-request upload pattern (common in WebDAV)
-    // Some clients send a PUT with 0 content-length first, then another with the data
-    if (req->content_len == 0) {
+    // Make sure parent directory exists
+    size_t last_slash = path.find_last_of('/');
+    if (last_slash != std::string::npos) {
+        std::string dir_path = path.substr(0, last_slash);
+        if (!dir_path.empty()) {
+            struct stat dir_stat;
+            if (stat(dir_path.c_str(), &dir_stat) != 0 || !S_ISDIR(dir_stat.st_mode)) {
+                // Create parent directories recursively
+                create_directories(dir_path);
+            }
+        }
+    }
+
+    bool is_preliminary_request = false;
+    
+    // Handle zero-length content as a preliminary request
+    if (req->content_len == 0 && !is_chunked) {
         ESP_LOGI(TAG, "Zero content length detected, this may be a preliminary request");
+        is_preliminary_request = true;
         
         // Create an empty file (or truncate existing)
         FILE *file = fopen(path.c_str(), "wb");
@@ -959,73 +975,84 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
         }
         fclose(file);
+    } else {
+        // Normal case with content
+        FILE *file = fopen(path.c_str(), "wb");
+        if (!file) {
+            ESP_LOGE(TAG, "Failed to open file for writing: %s (errno: %d)", path.c_str(), errno);
+            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+        }
         
-        // Send a simple successful response
-        httpd_resp_set_status(req, "200 OK");
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-        return httpd_resp_sendstr(req, "");
-    }
-    
-    // Normal case with content
-    FILE *file = fopen(path.c_str(), "wb");
-    if (!file) {
-        ESP_LOGE(TAG, "Failed to open file for writing: %s (errno: %d)", path.c_str(), errno);
-        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-    }
-    
-    bool is_chunked = (req->content_len < 0 || strcmp(transfer_encoding, "chunked") == 0);
-    int total_received = 0;
-    char buffer[4096];
-    
-    // Loop to read all data
-    while (true) {
-        int received = httpd_req_recv(req, buffer, sizeof(buffer));
-        ESP_LOGI(TAG, "Received %d bytes", received);
+        int total_received = 0;
+        char buffer[4096];
+        int recv_timeout_count = 0;
+        const int MAX_TIMEOUTS = 5;
         
-        if (received < 0) {
-            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
-                ESP_LOGW(TAG, "Socket timeout, retrying...");
-                continue;
+        // Loop to read all data
+        while (true) {
+            int received = httpd_req_recv(req, buffer, sizeof(buffer));
+            
+            if (received < 0) {
+                if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                    ESP_LOGW(TAG, "Socket timeout (%d/%d), retrying...", ++recv_timeout_count, MAX_TIMEOUTS);
+                    if (recv_timeout_count >= MAX_TIMEOUTS) {
+                        ESP_LOGE(TAG, "Too many timeouts, aborting");
+                        fclose(file);
+                        // Don't delete the file on timeout - it might be partially valid
+                        return httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Request timed out");
+                    }
+                    continue;
+                }
+                
+                ESP_LOGE(TAG, "Socket error: %d", received);
+                fclose(file);
+                unlink(path.c_str());
+                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Socket error");
             }
             
-            ESP_LOGE(TAG, "Socket error: %d", received);
-            fclose(file);
-            unlink(path.c_str());
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Socket error");
+            // Reset timeout counter when we receive data
+            recv_timeout_count = 0;
+            
+            // No more data
+            if (received == 0) {
+                ESP_LOGI(TAG, "End of data");
+                break;
+            }
+            
+            // Log data chunks but avoid spamming logs
+            if (total_received == 0 || (total_received % (1024*1024) < received)) {
+                ESP_LOGI(TAG, "Received %d bytes (total so far: %d bytes)", received, total_received + received);
+            }
+            
+            // Write received data to file
+            size_t written = fwrite(buffer, 1, received, file);
+            if (written != received) {
+                ESP_LOGE(TAG, "Write error: %zu/%d", written, received);
+                fclose(file);
+                unlink(path.c_str());
+                return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error");
+            }
+            
+            total_received += received;
+            
+            // If not chunked and we've read all expected data, break
+            if (!is_chunked && req->content_len > 0 && total_received >= req->content_len) {
+                ESP_LOGI(TAG, "Received exactly expected content length: %d bytes", total_received);
+                break;
+            }
         }
         
-        // No more data
-        if (received == 0) {
-            break;
-        }
+        fclose(file);
         
-        // Write received data to file
-        size_t written = fwrite(buffer, 1, received, file);
-        if (written != received) {
-            ESP_LOGE(TAG, "Write error: %zu/%d", written, received);
-            fclose(file);
-            unlink(path.c_str());
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Write error");
-        }
-        
-        total_received += received;
-        ESP_LOGI(TAG, "Total received so far: %d bytes", total_received);
-        
-        // If not chunked and we've read all expected data, break
-        if (!is_chunked && req->content_len > 0 && total_received >= req->content_len) {
-            break;
-        }
+        ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
     }
     
-    fclose(file);
-    
-    ESP_LOGI(TAG, "File uploaded successfully: %s (%d bytes)", path.c_str(), total_received);
-    
-    // Try a different response approach - super minimal
+    // Send response
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    // Set proper WebDAV headers
+    httpd_resp_set_hdr(req, "DAV", "1,2");
     
-    if (total_received > 0) {
+    if (!is_preliminary_request) {
         // If we actually received data, it's a creation
         httpd_resp_set_status(req, "201 Created");
     } else {
@@ -1033,11 +1060,58 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
         httpd_resp_set_status(req, "200 OK");
     }
     
-    // Try to return a super minimal response without setting Content-Type
-    const char *resp = "";
-    httpd_resp_send(req, resp, 0);
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "");
+}
+
+// Helper function to create directories recursively
+bool WebDAVBox3::create_directories(const std::string& path) {
+    char tmp[256];
+    char *p = NULL;
+    size_t len;
     
-    return ESP_OK;
+    snprintf(tmp, sizeof(tmp), "%s", path.c_str());
+    len = strlen(tmp);
+    
+    // Remove trailing slash
+    if (tmp[len - 1] == '/') {
+        tmp[len - 1] = 0;
+    }
+    
+    // Create each directory in the path
+    for (p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = 0;
+            
+            // Create the directory if it doesn't exist
+            struct stat st;
+            if (stat(tmp, &st) != 0) {
+                if (mkdir(tmp, 0755) != 0) {
+                    ESP_LOGE(TAG, "Failed to create directory: %s (errno: %d)", tmp, errno);
+                    return false;
+                }
+            } else if (!S_ISDIR(st.st_mode)) {
+                ESP_LOGE(TAG, "Path exists but is not a directory: %s", tmp);
+                return false;
+            }
+            
+            *p = '/';
+        }
+    }
+    
+    // Create the final directory
+    struct stat st;
+    if (stat(tmp, &st) != 0) {
+        if (mkdir(tmp, 0755) != 0) {
+            ESP_LOGE(TAG, "Failed to create directory: %s (errno: %d)", tmp, errno);
+            return false;
+        }
+    } else if (!S_ISDIR(st.st_mode)) {
+        ESP_LOGE(TAG, "Path exists but is not a directory: %s", tmp);
+        return false;
+    }
+    
+    return true;
 }
 esp_err_t WebDAVBox3::handle_webdav_delete(httpd_req_t *req) {
   auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
