@@ -904,6 +904,7 @@ esp_err_t WebDAVBox3::handle_webdav_get_small_file(httpd_req_t *req, const std::
     return ret;
 }
 
+// Updated implementation of PUT handler
 esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     auto *inst = static_cast<WebDAVBox3 *>(req->user_ctx);
     std::string path = get_file_path(req, inst->root_path_);
@@ -1064,7 +1065,8 @@ esp_err_t WebDAVBox3::handle_webdav_put(httpd_req_t *req) {
     return httpd_resp_sendstr(req, "");
 }
 
-// Helper function to create directories recursively
+// Implementation of helper function to create directories recursively
+// Add this function to your .cpp file
 bool WebDAVBox3::create_directories(const std::string& path) {
     char tmp[256];
     char *p = NULL;
